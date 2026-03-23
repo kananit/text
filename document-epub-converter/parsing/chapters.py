@@ -374,7 +374,120 @@ def _append_current_chapter_if_valid(
         chapters.append(Chapter(title=current_title, content=final_content))
 
 
-def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
+def _handle_toc_or_front_matter_branch(
+    *,
+    stripped: str,
+    next_non_empty_line: str | None,
+    chapters: list[Chapter],
+    current_title: str | None,
+    current_content: list[str],
+    toc_titles_exact: set[str],
+    toc_entries: list[TocEntry],
+    used_toc_indices: set[int],
+) -> tuple[bool, str | None, list[str]]:
+    if _is_toc_title_heading_candidate(stripped, toc_titles_exact, next_non_empty_line):
+        _append_current_chapter_if_valid(chapters, current_title, current_content)
+        new_title = _finalize_section_title(
+            resolve_title_with_toc(stripped, toc_entries, used_toc_indices)
+        )
+        return True, new_title, []
+
+    if _is_front_matter_heading_candidate(stripped, next_non_empty_line):
+        _append_current_chapter_if_valid(chapters, current_title, current_content)
+        new_title = _finalize_section_title(stripped)
+        return True, new_title, []
+
+    return False, current_title, current_content
+
+
+def _handle_number_plus_title_branch(
+    *,
+    lines: list[str],
+    i: int,
+    stripped: str,
+    enable_number_plus_title_detection: bool,
+    chapters: list[Chapter],
+    current_title: str | None,
+    current_content: list[str],
+    toc_entries: list[TocEntry],
+    used_toc_indices: set[int],
+) -> tuple[bool, int, str | None, list[str]]:
+    if not enable_number_plus_title_detection or not re.fullmatch(r"\d{1,3}", stripped):
+        return False, i, current_title, current_content
+
+    chapter_number = int(stripped)
+    if not (1 <= chapter_number <= 300):
+        return False, i, current_title, current_content
+    if _is_probable_toc_chapter_line(lines, i - 1):
+        return False, i, current_title, current_content
+
+    title_idx, title_candidate = _next_non_empty_line(lines, i)
+    if title_idx is None or title_candidate is None:
+        return False, i, current_title, current_content
+    if not _is_numbered_heading_title_candidate(title_candidate):
+        return False, i, current_title, current_content
+
+    body_probe_idx, _ = _next_non_empty_line(lines, title_idx + 1)
+    if body_probe_idx is None:
+        return False, i, current_title, current_content
+
+    _append_current_chapter_if_valid(chapters, current_title, current_content)
+    combined = f"Глава {chapter_number}. {title_candidate}"
+    new_title = _finalize_section_title(
+        resolve_title_with_toc(combined, toc_entries, used_toc_indices)
+    )
+    return True, title_idx + 1, new_title, []
+
+
+def _handle_explicit_chapter_heading_branch(
+    *,
+    lines: list[str],
+    i: int,
+    line: str,
+    stripped: str,
+    current_title: str | None,
+    current_content: list[str],
+    chapters: list[Chapter],
+    toc_entries: list[TocEntry],
+    used_toc_indices: set[int],
+) -> tuple[bool, int, str | None, list[str]]:
+    if not is_chapter_heading(stripped):
+        return False, i, current_title, current_content
+    if _is_probable_toc_chapter_line(lines, i - 1):
+        return True, i, current_title, current_content
+
+    accumulated_len = len("\n".join(current_content).strip())
+    if current_title and accumulated_len > _chapter_split_threshold(current_title):
+        chapters.append(
+            Chapter(title=current_title, content="\n".join(current_content).strip())
+        )
+        current_content = []
+    elif current_title and accumulated_len <= _chapter_split_threshold(current_title):
+        current_content.append(line)
+        return True, i, current_title, current_content
+
+    combined = stripped
+    next_idx, next_line = _next_non_empty_line(lines, i)
+    if next_idx is not None and next_line and _is_subtitle_candidate(next_line):
+        combined = f"{stripped}. {next_line}"
+        i = next_idx + 1
+
+    new_title = _finalize_section_title(
+        resolve_title_with_toc(combined, toc_entries, used_toc_indices)
+    )
+    return True, i, new_title, []
+
+
+def _prepare_chapter_detection_context(text: str, toc_entries: list[TocEntry]) -> dict:
+    """Pre-process text and build detection context.
+
+    Returns dict with keys:
+    - lines: cleaned, denoised lines
+    - footer_titles: detected footer titles
+    - repeated_noise_lines: detected repeated noise lines
+    - enable_number_plus_title_detection: bool flag
+    - toc_titles_exact: set of normalized TOC titles
+    """
     lines = [clean_line(line) for line in text.split("\n")]
     footer_titles = detect_running_footer_titles(
         lines,
@@ -391,19 +504,33 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
         if clean_paragraph(line).lower() not in repeated_noise_lines
     ]
 
-    # Apply "number + title" chapter-start heuristic only when explicit chapter headings
-    # are present but chapter 1 is missing (e.g. text starts with "1" + title, while
-    # later chapters are labeled "Глава 2", "Глава 3", ...).
     explicit_numbers = _extract_explicit_chapter_numbers(lines)
     enable_number_plus_title_detection = (
         bool(explicit_numbers) and 1 not in explicit_numbers
     )
 
+    toc_titles_exact = {normalize_title(item.title).lower() for item in toc_entries}
+
+    return {
+        "lines": lines,
+        "footer_titles": footer_titles,
+        "repeated_noise_lines": repeated_noise_lines,
+        "enable_number_plus_title_detection": enable_number_plus_title_detection,
+        "toc_titles_exact": toc_titles_exact,
+    }
+
+
+def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
+    ctx = _prepare_chapter_detection_context(text, toc_entries)
+    lines = ctx["lines"]
+    repeated_noise_lines = ctx["repeated_noise_lines"]
+    enable_number_plus_title_detection = ctx["enable_number_plus_title_detection"]
+
     chapters: list[Chapter] = []
     current_title = None
     current_content: list[str] = []
     used_toc_indices: set[int] = set()
-    toc_titles_exact = {normalize_title(item.title).lower() for item in toc_entries}
+    toc_titles_exact = ctx["toc_titles_exact"]
 
     i = 0
     while i < len(lines):
@@ -416,106 +543,51 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
                 current_content.append("")
             continue
 
-        # Support non-numbered section starts from TOC (e.g., "Отзывы", "Предисловие")
+        # Support non-numbered section starts from TOC/front-matter
         # while ignoring TOC listing itself.
         _, next_non_empty_line = _next_non_empty_line(lines, i)
 
-        if _is_toc_title_heading_candidate(
-            stripped, toc_titles_exact, next_non_empty_line
-        ):
-            _append_current_chapter_if_valid(chapters, current_title, current_content)
-
-            current_title = _finalize_section_title(
-                resolve_title_with_toc(
-                    stripped,
-                    toc_entries,
-                    used_toc_indices,
-                )
-            )
-            current_content = []
+        handled, current_title, current_content = _handle_toc_or_front_matter_branch(
+            stripped=stripped,
+            next_non_empty_line=next_non_empty_line,
+            chapters=chapters,
+            current_title=current_title,
+            current_content=current_content,
+            toc_titles_exact=toc_titles_exact,
+            toc_entries=toc_entries,
+            used_toc_indices=used_toc_indices,
+        )
+        if handled:
             continue
 
-        if _is_front_matter_heading_candidate(stripped, next_non_empty_line):
-            _append_current_chapter_if_valid(chapters, current_title, current_content)
-
-            current_title = _finalize_section_title(stripped)
-            current_content = []
+        handled, i, current_title, current_content = _handle_number_plus_title_branch(
+            lines=lines,
+            i=i,
+            stripped=stripped,
+            enable_number_plus_title_detection=enable_number_plus_title_detection,
+            chapters=chapters,
+            current_title=current_title,
+            current_content=current_content,
+            toc_entries=toc_entries,
+            used_toc_indices=used_toc_indices,
+        )
+        if handled:
             continue
 
-        # Support chapter starts like:
-        #   1
-        #   Много шума из-за церкви
-        if enable_number_plus_title_detection and re.fullmatch(r"\d{1,3}", stripped):
-            chapter_number = int(stripped)
-            if 1 <= chapter_number <= 300 and not _is_probable_toc_chapter_line(
-                lines, i - 1
-            ):
-                title_idx = i
-                while title_idx < len(lines) and not lines[title_idx].strip():
-                    title_idx += 1
-
-                if title_idx < len(lines):
-                    title_candidate = lines[title_idx].strip()
-                    if _is_numbered_heading_title_candidate(title_candidate):
-                        body_probe_idx = title_idx + 1
-                        while (
-                            body_probe_idx < len(lines)
-                            and not lines[body_probe_idx].strip()
-                        ):
-                            body_probe_idx += 1
-
-                        has_body_after_title = body_probe_idx < len(lines)
-                        if has_body_after_title:
-                            _append_current_chapter_if_valid(
-                                chapters,
-                                current_title,
-                                current_content,
-                            )
-
-                            combined = f"Глава {chapter_number}. {title_candidate}"
-                            current_title = _finalize_section_title(
-                                resolve_title_with_toc(
-                                    combined,
-                                    toc_entries,
-                                    used_toc_indices,
-                                )
-                            )
-                            current_content = []
-                            i = title_idx + 1
-                            continue
-
-        if is_chapter_heading(stripped):
-            if _is_probable_toc_chapter_line(lines, i - 1):
-                continue
-
-            accumulated_len = len("\n".join(current_content).strip())
-            if current_title and accumulated_len > _chapter_split_threshold(
-                current_title
-            ):
-                chapters.append(
-                    Chapter(
-                        title=current_title, content="\n".join(current_content).strip()
-                    )
-                )
-                current_content = []
-            elif current_title and accumulated_len <= _chapter_split_threshold(
-                current_title
-            ):
-                current_content.append(line)
-                continue
-
-            # Lookahead: если следующая непустая строка — короткий подзаголовок,
-            # объединяем её с заголовком главы (напр. "Глава 3" + "Жертва")
-            combined = stripped
-            next_idx, next_line = _next_non_empty_line(lines, i)
-            if next_idx is not None and next_line and _is_subtitle_candidate(next_line):
-                subtitle = next_line
-                combined = f"{stripped}. {subtitle}"
-                i = next_idx + 1
-
-            current_title = _finalize_section_title(
-                resolve_title_with_toc(combined, toc_entries, used_toc_indices)
+        handled, i, current_title, current_content = (
+            _handle_explicit_chapter_heading_branch(
+                lines=lines,
+                i=i,
+                line=line,
+                stripped=stripped,
+                current_title=current_title,
+                current_content=current_content,
+                chapters=chapters,
+                toc_entries=toc_entries,
+                used_toc_indices=used_toc_indices,
             )
+        )
+        if handled:
             continue
 
         if current_title:
