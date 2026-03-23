@@ -42,7 +42,7 @@ def main() -> None:
     print(f"  year: {metadata.year}")
     if missing_required:
         print(
-            "⚠️  Обязательные поля не найдены в PDF и заполнены из meta.example.json: "
+            "⚠️  Обязательные поля не найдены в исходном файле и заполнены из meta.example.json: "
             + ", ".join(missing_required)
         )
     print("ℹ️  Проверьте файл и при необходимости отредактируйте вручную.")

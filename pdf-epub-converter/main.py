@@ -69,7 +69,9 @@ def await_metadata_confirmation(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="PDF to EPUB converter")
+    parser = argparse.ArgumentParser(
+        description="Document to EPUB converter (PDF, DOC, DOCX)"
+    )
     parser.add_argument(
         "--yes",
         action="store_true",
@@ -102,18 +104,18 @@ def main() -> None:
     )
 
     print("=" * 70)
-    print(f"🚀 PDF to EPUB Converter - {metadata.title}")
+    print(f"🚀 Document to EPUB Converter - {metadata.title}")
     print("=" * 70)
     if example_created:
         print(f"✓ Создан шаблон метаданных: {METADATA_EXAMPLE_FILE.name}")
     if metadata_created:
         print(
-            f"✓ Создан файл меты: {METADATA_FILE.name} (источник: PDF → fallback meta.example.json)"
+            f"✓ Создан файл меты: {METADATA_FILE.name} (источник: исходный файл → fallback meta.example.json)"
         )
     if bootstrap_example_fields:
         fields = ", ".join(bootstrap_example_fields)
         print(
-            "⚠️  При создании meta.json обязательные поля не найдены в PDF и взяты из meta.example.json: "
+            "⚠️  При создании meta.json обязательные поля не найдены в исходном файле и взяты из meta.example.json: "
             f"{fields}"
         )
     if metadata_from_file:
@@ -126,7 +128,7 @@ def main() -> None:
         fields = ", ".join(example_fields_used)
         print(
             "⚠️  Обязательные поля меты взяты из meta.example.json "
-            f"(не найдены в PDF/meta.json): {fields}"
+            f"(не найдены в исходном файле/meta.json): {fields}"
         )
     print(f"✓ Исходный файл: {source_file.name}")
 
@@ -189,7 +191,7 @@ def main() -> None:
 
     toc_page_id = build_toc_page(book_items, toc_entries, language)
     if toc_entries:
-        print("✓ Добавлена отдельная страница оглавления (из PDF)")
+        print("✓ Добавлена отдельная страница оглавления (из исходного документа)")
     else:
         print("✓ Добавлена отдельная страница оглавления (из распознанных глав)")
 
@@ -230,7 +232,9 @@ def main() -> None:
     print(f"📚 Глав:     {len(book_items)}")
     print(f"📖 Слов:     {word_count:,}")
     if toc_entries:
-        print(f"📑 Оглавл.:  Отдельное + NCX ({len(toc_entries)} пунктов из PDF)")
+        print(
+            f"📑 Оглавл.:  Отдельное + NCX ({len(toc_entries)} пунктов из исходного документа)"
+        )
     else:
         print(f"📑 Оглавл.:  Отдельное + NCX ({len(book_items)} пунктов по главам)")
     print("🧹 Временные файлы: удалены")

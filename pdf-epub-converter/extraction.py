@@ -50,7 +50,7 @@ def _extract_pdf_text(
 
     result = subprocess.run(command, capture_output=True)
     if result.returncode != 0:
-        print("❌ Ошибка при извлечении текста из PDF")
+        print("❌ Ошибка при извлечении текста из PDF-файла")
         sys.exit(1)
 
     return temp_txt.read_text(encoding="utf-8", errors="replace")

@@ -50,7 +50,7 @@ def resolve_pdf_file() -> Path:
     """Совместимость со старыми скриптами, которые ждут именно PDF."""
     pdf_files = sorted(PDF_DIR.glob("*.pdf"))
     if not pdf_files:
-        raise FileNotFoundError(f"В папке {PDF_DIR} не найден PDF-файл (*.pdf).")
+        raise FileNotFoundError(f"В папке {PDF_DIR} не найден PDF-источник (*.pdf).")
     return pdf_files[0]
 
 
