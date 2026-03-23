@@ -1,7 +1,12 @@
 import re
 from collections import Counter
 
-from config import FOOTER_MIN_OCCURRENCES
+from config import (
+    FOOTER_MIN_OCCURRENCES,
+    MINOR_SUBHEADING_ENABLED,
+    MINOR_SUBHEADING_MAX_LEN,
+    MINOR_SUBHEADING_UPPERCASE_RATIO,
+)
 from models import Chapter, TocEntry
 
 
@@ -254,13 +259,16 @@ def split_columns(line: str) -> list[str]:
 
 
 def is_minor_subheading(text: str) -> bool:
+    if not MINOR_SUBHEADING_ENABLED:
+        return False
+
     letters = re.findall(r"[A-Za-zА-Яа-яЁё]", text)
     if len(letters) < 8:
         return False
 
     uppercase = [ch for ch in letters if ch.isupper()]
     uppercase_ratio = len(uppercase) / len(letters)
-    return uppercase_ratio >= 0.85
+    return uppercase_ratio >= MINOR_SUBHEADING_UPPERCASE_RATIO
 
 
 def parse_table_rows(block_lines: list[str]):
@@ -310,7 +318,11 @@ def chapter_blocks(content: str) -> list[dict]:
 
         if len(non_empty) == 1:
             one = clean_paragraph(non_empty[0])
-            if one and len(one) < 90 and not re.search(r"[\.!?…:]$", one):
+            if (
+                one
+                and len(one) < MINOR_SUBHEADING_MAX_LEN
+                and not re.search(r"[\.\.!?…:]$", one)
+            ):
                 if is_minor_subheading(one):
                     blocks.append({"type": "h3_small", "text": one})
                 else:

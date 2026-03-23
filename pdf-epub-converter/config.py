@@ -17,6 +17,11 @@ REQUIRED_META_FIELDS = ("title", "creator", "year")
 
 FOOTER_MIN_OCCURRENCES = 5
 
+# Minor subheading detection (UPPERCASE lines inside chapter body)
+MINOR_SUBHEADING_ENABLED = True  # False — treat as regular h2
+MINOR_SUBHEADING_MAX_LEN = 100  # chars; longer lines are never a subheading
+MINOR_SUBHEADING_UPPERCASE_RATIO = 0.85  # fraction of uppercase letters required
+
 
 _COVER_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
 

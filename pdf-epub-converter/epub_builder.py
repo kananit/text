@@ -27,7 +27,7 @@ def render_blocks_to_xhtml(blocks: list[dict]) -> str:
             chunks.append(f"    <h2>{escape_xml(block['text'])}</h2>")
         elif block["type"] == "h3_small":
             chunks.append(
-                f"    <h3 class=\"minor-subtitle\">{escape_xml(block['text'])}</h3>"
+                f"    <h4 class=\"minor-subtitle\">{escape_xml(block['text'])}</h4>"
             )
         elif block["type"] == "table":
             rows = block["rows"]
@@ -190,10 +190,10 @@ h3 {
     font-size: 1.1em;
 }
 
-h3.minor-subtitle {
-    font-size: 0.95em;
-    margin-top: 0.6em;
-    margin-bottom: 0.35em;
+h4.minor-subtitle {
+    font-size: 0.88em;
+    margin-top: 0.55em;
+    margin-bottom: 0.3em;
     text-transform: uppercase;
     letter-spacing: 0.01em;
 }
@@ -298,8 +298,10 @@ def build_cover_page(cover_path: Path, language: str) -> str:
   <title>{cover_title}</title>
   <link rel="stylesheet" type="text/css" href="../css/style.css"/>
   <style type="text/css">
-    body {{ margin: 0; padding: 0; text-align: center; }}
-    .cover-img {{ max-width: 100%; height: auto; display: block; margin: 0 auto; }}
+    html, body {{ margin: 0; padding: 0; height: 100%; width: 100%; }}
+    body {{ display: flex; align-items: center; justify-content: center; }}
+    div {{ width: 100%; height: 100%; }}
+    .cover-img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
   </style>
 </head>
 <body>
