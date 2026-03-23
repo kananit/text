@@ -30,7 +30,8 @@ def normalize_title(title: str) -> str:
 
 def remove_urls_and_domains(text: str) -> str:
     """Удаляет URL и типичные домены мусорных сайтов (работает построчно)."""
-    lines = []
+    cleaned_lines: list[str] = []
+    previous_blank = True
     for line in text.split("\n"):
         line = re.sub(r"https?://\S+", "", line, flags=re.IGNORECASE)
         line = re.sub(r"filosoff\.org", "", line, flags=re.IGNORECASE)
@@ -38,14 +39,25 @@ def remove_urls_and_domains(text: str) -> str:
         line = re.sub(r"flibusta\.site", "", line, flags=re.IGNORECASE)
         line = re.sub(r"\s+", " ", line).strip()
         if line:
-            lines.append(line)
-    return "\n".join(lines)
+            cleaned_lines.append(line)
+            previous_blank = False
+        elif not previous_blank:
+            cleaned_lines.append("")
+            previous_blank = True
+
+    while cleaned_lines and cleaned_lines[0] == "":
+        cleaned_lines.pop(0)
+    while cleaned_lines and cleaned_lines[-1] == "":
+        cleaned_lines.pop()
+
+    return "\n".join(cleaned_lines)
 
 
 def remove_boilerplate_text(text: str) -> str:
     """Удаляет типичные фразы благодарности, рекламу и мусор (по строкам)."""
     lines = text.split("\n")
     result = []
+    previous_blank = True
 
     skip_patterns = [
         r"^спасибо.{0,50}скачал.{0,50}книгу",
@@ -64,14 +76,26 @@ def remove_boilerplate_text(text: str) -> str:
         line = re.sub(r"\b(?:страница|page)\s+\d{1,4}\b", "", line, flags=re.IGNORECASE)
         line = re.sub(r"\s+", " ", line).strip()
 
+        if not line:
+            if not previous_blank:
+                result.append("")
+                previous_blank = True
+            continue
+
         should_skip = False
         for pattern in skip_patterns:
             if re.search(pattern, line[:100], flags=re.IGNORECASE):
                 should_skip = True
                 break
 
-        if not should_skip and line.strip():
+        if not should_skip:
             result.append(line)
+            previous_blank = False
+
+    while result and result[0] == "":
+        result.pop(0)
+    while result and result[-1] == "":
+        result.pop()
 
     return "\n".join(result)
 

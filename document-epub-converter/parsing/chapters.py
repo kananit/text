@@ -206,6 +206,109 @@ def _is_subtitle_candidate(line: str) -> bool:
     return bool(re.search(r"[A-Za-zА-Яа-яЁё]", stripped))
 
 
+def _is_toc_title_heading_candidate(
+    line: str,
+    toc_titles_exact: set[str],
+    next_non_empty_line: str | None,
+) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+
+    normalized = normalize_title(stripped).lower()
+    if normalized not in toc_titles_exact:
+        return False
+    if is_chapter_heading(stripped):
+        return False
+
+    if next_non_empty_line:
+        next_normalized = normalize_title(next_non_empty_line).lower()
+        if next_normalized in toc_titles_exact or is_chapter_heading(
+            next_non_empty_line
+        ):
+            return False
+
+    return True
+
+
+_FRONT_MATTER_HEADINGS = {
+    "отзывы",
+    "предисловие",
+    "введение",
+    "послесловие",
+    "заключение",
+    "благодарности",
+    "foreword",
+    "preface",
+    "introduction",
+    "afterword",
+    "acknowledgements",
+    "acknowledgments",
+    "conclusion",
+}
+
+
+def _normalize_heading_label(text: str) -> str:
+    return normalize_title(text).lower().strip(" .:-—–")
+
+
+def _is_front_matter_heading_candidate(
+    line: str,
+    next_non_empty_line: str | None,
+) -> bool:
+    normalized = _normalize_heading_label(line)
+    if normalized not in _FRONT_MATTER_HEADINGS:
+        return False
+
+    # Avoid matching TOC listing where headings go one-by-one.
+    if next_non_empty_line:
+        next_normalized = _normalize_heading_label(next_non_empty_line)
+        if next_normalized in _FRONT_MATTER_HEADINGS or is_chapter_heading(
+            next_non_empty_line
+        ):
+            return False
+
+    return True
+
+
+def _min_section_content_len(title: str | None) -> int:
+    if title and _normalize_heading_label(title) in _FRONT_MATTER_HEADINGS:
+        return 120
+    return 300
+
+
+def _chapter_split_threshold(title: str | None) -> int:
+    if title and _normalize_heading_label(title) in _FRONT_MATTER_HEADINGS:
+        return 120
+    return 2500
+
+
+def _is_probable_toc_chapter_line(lines: list[str], chapter_line_index: int) -> bool:
+    # Strong signal: nearby TOC header above this line.
+    header_window_start = max(0, chapter_line_index - 25)
+    for k in range(header_window_start, chapter_line_index):
+        if re.match(
+            r"^(содержание|оглавление|contents|table of contents)\s*$",
+            lines[k].strip(),
+            flags=re.IGNORECASE,
+        ):
+            return True
+
+    # Heuristic: TOC often contains several chapter headings in a short range.
+    chapter_like_count = 0
+    scan_end = min(len(lines), chapter_line_index + 16)
+    for k in range(chapter_line_index, scan_end):
+        candidate = lines[k].strip()
+        if not candidate:
+            continue
+        if is_chapter_heading(candidate):
+            chapter_like_count += 1
+            if chapter_like_count >= 3:
+                return True
+
+    return False
+
+
 def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
     lines = [clean_line(line) for line in text.split("\n")]
     footer_titles = detect_running_footer_titles(
@@ -226,6 +329,7 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
     current_title = None
     current_content: list[str] = []
     used_toc_indices: set[int] = set()
+    toc_titles_exact = {normalize_title(item.title).lower() for item in toc_entries}
 
     i = 0
     while i < len(lines):
@@ -238,16 +342,58 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
                 current_content.append("")
             continue
 
+        # Support non-numbered section starts from TOC (e.g., "Отзывы", "Предисловие")
+        # while ignoring TOC listing itself.
+        next_non_empty_line = None
+        j = i
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+        if j < len(lines):
+            next_non_empty_line = lines[j].strip()
+
+        if _is_toc_title_heading_candidate(
+            stripped, toc_titles_exact, next_non_empty_line
+        ):
+            if current_title and current_content:
+                final_content = "\n".join(current_content).strip()
+                if len(final_content) > _min_section_content_len(current_title):
+                    chapters.append(Chapter(title=current_title, content=final_content))
+
+            current_title = resolve_title_with_toc(
+                stripped,
+                toc_entries,
+                used_toc_indices,
+            )
+            current_content = []
+            continue
+
+        if _is_front_matter_heading_candidate(stripped, next_non_empty_line):
+            if current_title and current_content:
+                final_content = "\n".join(current_content).strip()
+                if len(final_content) > _min_section_content_len(current_title):
+                    chapters.append(Chapter(title=current_title, content=final_content))
+
+            current_title = normalize_title(stripped)
+            current_content = []
+            continue
+
         if is_chapter_heading(stripped):
+            if _is_probable_toc_chapter_line(lines, i - 1):
+                continue
+
             accumulated_len = len("\n".join(current_content).strip())
-            if current_title and accumulated_len > 2500:
+            if current_title and accumulated_len > _chapter_split_threshold(
+                current_title
+            ):
                 chapters.append(
                     Chapter(
                         title=current_title, content="\n".join(current_content).strip()
                     )
                 )
                 current_content = []
-            elif current_title and accumulated_len <= 2500:
+            elif current_title and accumulated_len <= _chapter_split_threshold(
+                current_title
+            ):
                 current_content.append(line)
                 continue
 
@@ -272,7 +418,7 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
 
     if current_title and current_content:
         final_content = "\n".join(current_content).strip()
-        if len(final_content) > 300:
+        if len(final_content) > _min_section_content_len(current_title):
             chapters.append(Chapter(title=current_title, content=final_content))
 
     if len(chapters) < 2:

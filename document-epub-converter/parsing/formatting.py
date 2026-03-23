@@ -78,7 +78,7 @@ def chapter_blocks(content: str) -> list[dict]:
             if (
                 one
                 and len(one) < MINOR_SUBHEADING_MAX_LEN
-                and not re.search(r"[\.\.!?…:]$", one)
+                and not re.search(r"[.!?…:»\"'\u201d\u2019]$", one)
             ):
                 if is_minor_subheading(one):
                     blocks.append({"type": "h3_small", "text": one})

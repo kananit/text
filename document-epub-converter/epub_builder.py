@@ -29,7 +29,9 @@ def render_blocks_to_xhtml(blocks: list[dict]) -> str:
         if block["type"] == "p":
             chunks.append(f"    <p>{escape_xml(block['text'])}</p>")
         elif block["type"] == "h2":
-            chunks.append(f"    <h2>{escape_xml(block['text'])}</h2>")
+            chunks.append(
+                f"    <h3 class=\"subheading\">{escape_xml(block['text'])}</h3>"
+            )
         elif block["type"] == "h3_small":
             chunks.append(
                 f"    <h4 class=\"minor-subtitle\">{escape_xml(block['text'])}</h4>"
