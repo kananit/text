@@ -7,7 +7,7 @@ from config import (
     MINOR_SUBHEADING_UPPERCASE_RATIO,
 )
 
-from .cleaning import clean_line, clean_paragraph
+from .cleaning import clean_line, clean_paragraph, is_chapter_heading
 
 
 def split_columns(line: str) -> list[str]:
@@ -56,6 +56,18 @@ def parse_table_rows(block_lines: list[str]):
 
 def chapter_blocks(content: str) -> list[dict]:
     lines = [clean_line(line) for line in content.split("\n")]
+
+    def should_merge_soft_break(prev_line: str, next_line: str) -> bool:
+        prev = prev_line.strip()
+        nxt = next_line.strip()
+        if not prev or not nxt:
+            return False
+        if is_chapter_heading(prev) or is_chapter_heading(nxt):
+            return False
+        if re.search(r"[.!?…:;»\"'\u201d\u2019\)]$", prev):
+            return False
+        return bool(re.match(r"^[a-zа-яё0-9\"'«\(]", nxt))
+
     blocks = []
     buffer_lines: list[str] = []
 
@@ -90,11 +102,39 @@ def chapter_blocks(content: str) -> list[dict]:
         if paragraph:
             blocks.append({"type": "p", "text": paragraph})
 
-    for line in lines:
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         if line.strip() == "":
+            prev_non_empty = None
+            if buffer_lines:
+                for candidate in reversed(buffer_lines):
+                    if candidate.strip():
+                        prev_non_empty = candidate
+                        break
+
+            next_non_empty = None
+            j = i + 1
+            while j < len(lines):
+                if lines[j].strip():
+                    next_non_empty = lines[j]
+                    break
+                j += 1
+
+            if (
+                prev_non_empty is not None
+                and next_non_empty is not None
+                and should_merge_soft_break(prev_non_empty, next_non_empty)
+            ):
+                i += 1
+                continue
+
             flush_buffer()
+            i += 1
             continue
+
         buffer_lines.append(line)
+        i += 1
 
     flush_buffer()
     return blocks

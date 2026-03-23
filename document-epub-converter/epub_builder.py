@@ -212,7 +212,7 @@ def write_opf(
     <dc:rights>Public Domain</dc:rights>
 {cover_meta}  </metadata>
   <manifest>
-    <item id="ncx" href="toc.ncx" media-type="application/x-dtb+xml"/>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     <item id="css" href="css/style.css" media-type="text/css"/>
 {cover_manifest}{extra_manifest}{manifest}  </manifest>
   <spine toc="ncx">
