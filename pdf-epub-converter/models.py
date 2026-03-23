@@ -19,3 +19,12 @@ class BookItem:
     href: str
     title: str
     order: int
+
+
+@dataclass
+class BookMetadata:
+    title: str
+    creator: str
+    publisher: str
+    year: str
+    description: str

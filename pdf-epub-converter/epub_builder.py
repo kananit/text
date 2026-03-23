@@ -3,16 +3,10 @@ import zipfile
 from pathlib import Path
 
 from config import (
-    BOOK_CREATOR,
-    BOOK_DESCRIPTION,
-    BOOK_PUBLISHER,
-    BOOK_TITLE,
-    BOOK_YEAR,
     BUILD_DIR,
     COVER_MEDIA_TYPES,
-    EPUB_OUTPUT,
 )
-from models import BookItem, Chapter, TocEntry
+from models import BookItem, BookMetadata, Chapter, TocEntry
 from parsing import chapter_blocks
 
 
@@ -304,6 +298,7 @@ def write_opf(
     book_items: list[BookItem],
     toc_page_id: str,
     language: str,
+    metadata: BookMetadata,
     cover_path: Path | None = None,
 ) -> None:
     manifest = "\n".join(
@@ -331,13 +326,13 @@ def write_opf(
     opf = f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
-    <dc:title>{BOOK_TITLE}</dc:title>
-    <dc:creator>{BOOK_CREATOR}</dc:creator>
-    <dc:date>{BOOK_YEAR}</dc:date>
-    <dc:publisher>{BOOK_PUBLISHER}</dc:publisher>
+        <dc:title>{escape_xml(metadata.title)}</dc:title>
+        <dc:creator>{escape_xml(metadata.creator)}</dc:creator>
+        <dc:date>{escape_xml(metadata.year)}</dc:date>
+        <dc:publisher>{escape_xml(metadata.publisher)}</dc:publisher>
     <dc:language>{language}</dc:language>
-    <dc:identifier id="uuid_id">war-with-saints-{BOOK_YEAR}</dc:identifier>
-    <dc:description>{BOOK_DESCRIPTION}</dc:description>
+        <dc:identifier id="uuid_id">book-{escape_xml(metadata.year)}</dc:identifier>
+        <dc:description>{escape_xml(metadata.description)}</dc:description>
     <dc:rights>Public Domain</dc:rights>
 {cover_meta}  </metadata>
   <manifest>
@@ -350,7 +345,12 @@ def write_opf(
     (BUILD_DIR / "OEBPS" / "content.opf").write_text(opf, encoding="utf-8")
 
 
-def write_ncx(book_items: list[BookItem], toc_page_id: str, language: str) -> None:
+def write_ncx(
+    book_items: list[BookItem],
+    toc_page_id: str,
+    language: str,
+    metadata: BookMetadata,
+) -> None:
     nav_source_items = [
         BookItem(
             id=toc_page_id,
@@ -385,7 +385,7 @@ def write_ncx(book_items: list[BookItem], toc_page_id: str, language: str) -> No
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
-  <docTitle><text>{BOOK_TITLE}</text></docTitle>
+    <docTitle><text>{escape_xml(metadata.title)}</text></docTitle>
   <navMap>
 {nav_points}  </navMap>
 </ncx>"""
@@ -407,9 +407,12 @@ def write_mimetype() -> None:
 
 
 def package_epub(
-    book_items: list[BookItem], toc_page_id: str, cover_path: Path | None = None
+    book_items: list[BookItem],
+    toc_page_id: str,
+    output_path: Path,
+    cover_path: Path | None = None,
 ) -> None:
-    with zipfile.ZipFile(EPUB_OUTPUT, "w", zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(BUILD_DIR / "mimetype", "mimetype", zipfile.ZIP_STORED)
         archive.write(
             BUILD_DIR / "META-INF" / "container.xml", "META-INF/container.xml"

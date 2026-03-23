@@ -10,9 +10,21 @@ def ensure_pdftotext() -> None:
         sys.exit(1)
 
 
-def extract_text(pdf_file: Path, temp_txt: Path) -> str:
+def extract_text(
+    pdf_file: Path,
+    temp_txt: Path,
+    start_page: int | None = None,
+    end_page: int | None = None,
+) -> str:
+    command = ["pdftotext", "-layout"]
+    if start_page is not None:
+        command.extend(["-f", str(start_page)])
+    if end_page is not None:
+        command.extend(["-l", str(end_page)])
+    command.extend([str(pdf_file), str(temp_txt)])
+
     result = subprocess.run(
-        ["pdftotext", "-layout", str(pdf_file), str(temp_txt)],
+        command,
         capture_output=True,
     )
     if result.returncode != 0:
