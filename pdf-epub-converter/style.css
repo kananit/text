@@ -1,0 +1,168 @@
+/* EPUB Stylesheet */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1em;
+  line-height: 1.6;
+  background-color: #ffffff;
+  color: #333333;
+}
+
+.chapter {
+  margin: 0;
+  padding: 1em;
+}
+
+.chapter-title {
+  font-size: 1.8em;
+  font-weight: bold;
+  margin: 0.5em 0 1.5em 0;
+  color: #1a1a1a;
+  page-break-after: avoid;
+  page-break-inside: avoid;
+  text-align: center;
+  border-bottom: 2px solid #cccccc;
+  padding-bottom: 0.5em;
+}
+
+.chapter-content {
+  text-align: justify;
+}
+
+p {
+  margin: 0.5em 0;
+  text-align: justify;
+  text-indent: 1.5em;
+  orphans: 2;
+  widows: 2;
+}
+
+p:first-of-type {
+  text-indent: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: bold;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  page-break-after: avoid;
+  text-align: left;
+}
+
+h2 {
+  font-size: 1.2em;
+  border-bottom: 1px solid #dddddd;
+  padding-bottom: 0.3em;
+}
+
+h3 {
+  font-size: 1.1em;
+}
+
+h4.minor-subtitle {
+  font-size: 0.88em;
+  margin-top: 0.55em;
+  margin-bottom: 0.3em;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+h4,
+h5,
+h6 {
+  font-size: 1em;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+th,
+td {
+  border: 1px solid #d9d9d9;
+  padding: 0.35em 0.45em;
+  vertical-align: top;
+}
+
+th {
+  font-weight: bold;
+  background: #f7f7f7;
+}
+
+.toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.toc-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  border-bottom: 1px dotted #d3d3d3;
+  padding: 0.25em 0;
+}
+
+.toc-title {
+  flex: 1;
+}
+
+.toc-page {
+  min-width: 2.5em;
+  text-align: right;
+}
+
+em,
+i {
+  font-style: italic;
+}
+
+strong,
+b {
+  font-weight: bold;
+}
+
+a {
+  color: #0066cc;
+  text-decoration: none;
+}
+
+a:visited {
+  color: #660066;
+}
+
+blockquote {
+  margin: 1em 0;
+  padding-left: 1.5em;
+  border-left: 3px solid #cccccc;
+  color: #555555;
+  font-style: italic;
+}
+
+@media (max-width: 600px) {
+  body {
+    font-size: 90%;
+  }
+
+  .chapter {
+    padding: 0.75em;
+  }
+}
