@@ -12,7 +12,7 @@ from config import (
 from models import BookMetadata
 
 
-METADATA_BOOTSTRAP_TEXT_FILE = Path("/tmp/document_meta_bootstrap.txt")
+METADATA_BOOTSTRAP_TEXT_FILE = Path("/tmp/document_epub_meta_bootstrap.txt")
 
 TITLE_PATTERNS = [
     r"^\s*Название\s*[:\-]\s*(.+)$",

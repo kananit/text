@@ -206,7 +206,7 @@ def main() -> None:
         print(f"✓ Обложка: {cover_path.name}")
     else:
         print(
-            "⚠️  Обложка не найдена — положите cover.jpeg (или cover.jpg/cover.png) в папку pdf-epub/"
+            "⚠️  Обложка не найдена — положите cover.jpeg (или cover.jpg/cover.png) в папку source-epub/"
         )
 
     print("📦 Создаю метаданные EPUB...")

@@ -3,11 +3,11 @@ import shutil
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SOURCE_DIR = BASE_DIR / "pdf-epub"
+SOURCE_DIR = BASE_DIR / "source-epub"
 EPUB_BUILD_DIR = SOURCE_DIR / "epub_build"
 EXTRACTED_TEXT_FILE = Path("/tmp/document_epub_extracted.txt")
 METADATA_FILE = SOURCE_DIR / "meta.json"
-METADATA_EXAMPLE_FILE = BASE_DIR / "pdf-epub-converter" / "meta.example.json"
+METADATA_EXAMPLE_FILE = BASE_DIR / "document-epub-converter" / "meta.example.json"
 
 EXAMPLE_META_TITLE = "Название книги"
 EXAMPLE_META_CREATOR = "Имя Автора"

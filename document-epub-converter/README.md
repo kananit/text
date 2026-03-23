@@ -4,7 +4,7 @@
 
 ## Как работает
 
-Скрипт ищет в папке `pdf-epub/`:
+Скрипт ищет в папке `source-epub/`:
 
 - первый подходящий источник: `*.pdf`, `*.docx`, `*.doc`
 - обложку `*.jpeg` / `*.jpg` (приоритет: `<source_name>_cover.*`, `<source_name>.*`, `cover.*`, затем первый jpeg/jpg)
@@ -22,22 +22,22 @@
 1. Сгенерировать/обновить метаданные из исходного файла:
 
 ```bash
-python3 pdf-epub-converter/extract_metadata.py
+python3 document-epub-converter/extract_metadata.py
 ```
 
-2. Проверить и при необходимости вручную поправить `pdf-epub/meta.json`.
-   Если `meta.json` отсутствует, скрипт сначала пробует извлечь мету из исходного файла и только недостающие поля берёт из `pdf-epub-converter/meta.example.json`.
+2. Проверить и при необходимости вручную поправить `source-epub/meta.json`.
+   Если `meta.json` отсутствует, скрипт сначала пробует извлечь мету из исходного файла и только недостающие поля берёт из `document-epub-converter/meta.example.json`.
 
 3. Собрать EPUB:
 
 ```bash
-python3 pdf-epub-converter/main.py
+python3 document-epub-converter/main.py
 ```
 
 Для неинтерактивного режима (CI), чтобы не ждать ручного подтверждения `meta.json`:
 
 ```bash
-python3 pdf-epub-converter/main.py --yes
+python3 document-epub-converter/main.py --yes
 ```
 
 В интерактивном режиме для продолжения введите `y` или `yes`.

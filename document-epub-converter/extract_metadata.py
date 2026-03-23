@@ -11,7 +11,7 @@ from metadata import (
     save_book_metadata,
 )
 
-METADATA_TEMP_TEXT_FILE = Path("/tmp/document_meta_extracted.txt")
+METADATA_TEMP_TEXT_FILE = Path("/tmp/document_epub_meta_extracted.txt")
 
 
 def main() -> None:
