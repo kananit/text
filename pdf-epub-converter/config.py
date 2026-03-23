@@ -33,25 +33,39 @@ COVER_MEDIA_TYPES = {
 }
 
 
+def resolve_source_file() -> Path:
+    candidates = [
+        *sorted(PDF_DIR.glob("*.pdf")),
+        *sorted(PDF_DIR.glob("*.docx")),
+        *sorted(PDF_DIR.glob("*.doc")),
+    ]
+    if not candidates:
+        raise FileNotFoundError(
+            f"В папке {PDF_DIR} не найден исходный файл (*.pdf, *.docx, *.doc)."
+        )
+    return candidates[0]
+
+
 def resolve_pdf_file() -> Path:
+    """Совместимость со старыми скриптами, которые ждут именно PDF."""
     pdf_files = sorted(PDF_DIR.glob("*.pdf"))
     if not pdf_files:
         raise FileNotFoundError(f"В папке {PDF_DIR} не найден PDF-файл (*.pdf).")
     return pdf_files[0]
 
 
-def resolve_epub_output(pdf_file: Path) -> Path:
-    return PDF_DIR / f"{pdf_file.stem}.epub"
+def resolve_epub_output(source_file: Path) -> Path:
+    return PDF_DIR / f"{source_file.stem}.epub"
 
 
-def resolve_cover_image(pdf_file: Path) -> Path | None:
-    """Ищет обложку рядом с PDF: <имя_pdf>_cover.ext, <имя_pdf>.ext, cover.ext, любой *.jpeg/*.jpg."""
+def resolve_cover_image(source_file: Path) -> Path | None:
+    """Ищет обложку рядом с исходным файлом: <имя>_cover.ext, <имя>.ext, cover.ext, любой *.jpeg/*.jpg."""
     for ext in _COVER_EXTENSIONS:
-        candidate = PDF_DIR / f"{pdf_file.stem}_cover{ext}"
+        candidate = PDF_DIR / f"{source_file.stem}_cover{ext}"
         if candidate.exists():
             return candidate
     for ext in _COVER_EXTENSIONS:
-        candidate = PDF_DIR / f"{pdf_file.stem}{ext}"
+        candidate = PDF_DIR / f"{source_file.stem}{ext}"
         if candidate.exists():
             return candidate
     for ext in _COVER_EXTENSIONS:

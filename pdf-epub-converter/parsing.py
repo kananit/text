@@ -17,7 +17,11 @@ def detect_language(text: str) -> str:
 
 
 def clean_line(text: str) -> str:
+    # Strip ASCII control chars (except \t, \n)
     text = re.sub(r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]", "", text)
+    # Strip Unicode invisible/directional/format marks (e.g. \u200f from textutil docx output)
+    # Note: \u2028/\u2029 are converted to real \n at extraction time, not here
+    text = re.sub(r"[\u200b-\u200f\u202a-\u202e\ufeff]", "", text)
     return text.rstrip()
 
 
@@ -353,6 +357,18 @@ def identify_numbered_profile_chapters(
     return chapters
 
 
+def _is_subtitle_candidate(line: str) -> bool:
+    """True если строка похожа на подзаголовок главы (короткая, не сама заголовок)."""
+    stripped = line.strip()
+    if not stripped or len(stripped) > 80:
+        return False
+    if is_chapter_heading(stripped):
+        return False
+    if re.search(r"\d{4,}", stripped):  # длинные числа — скорее не заголовок
+        return False
+    return bool(re.search(r"[A-Za-zА-Яа-яЁё]", stripped))
+
+
 def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
     lines = [clean_line(line) for line in text.split("\n")]
     footer_titles = detect_running_footer_titles(
@@ -374,8 +390,12 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
     current_content: list[str] = []
     used_toc_indices: set[int] = set()
 
-    for line in lines:
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         stripped = line.strip()
+        i += 1
+
         if not stripped:
             if current_content:
                 current_content.append("")
@@ -394,8 +414,19 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
                 current_content.append(line)
                 continue
 
+            # Lookahead: если следующая непустая строка — короткий подзаголовок,
+            # объединяем её с заголовком главы (напр. "Глава 3" + "Жертва")
+            combined = stripped
+            j = i
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines) and _is_subtitle_candidate(lines[j]):
+                subtitle = lines[j].strip()
+                combined = f"{stripped}. {subtitle}"
+                i = j + 1  # пропускаем строку подзаголовка
+
             current_title = resolve_title_with_toc(
-                stripped, toc_entries, used_toc_indices
+                combined, toc_entries, used_toc_indices
             )
             continue
 

@@ -10,7 +10,7 @@ from config import (
     cleanup_temp_files,
     ensure_build_dirs,
     resolve_epub_output,
-    resolve_pdf_file,
+    resolve_source_file,
     resolve_cover_image,
 )
 from epub_builder import (
@@ -24,7 +24,7 @@ from epub_builder import (
     write_opf,
     write_stylesheet,
 )
-from extraction import ensure_pdftotext, extract_text
+from extraction import ensure_extractor_available, extract_text
 from metadata import ensure_metadata_files, load_book_metadata, load_example_metadata
 from parsing import (
     detect_language,
@@ -82,18 +82,18 @@ def main() -> None:
     args = parse_args()
 
     try:
-        pdf_file = resolve_pdf_file()
+        source_file = resolve_source_file()
     except FileNotFoundError as exc:
         print(f"❌ {exc}")
         return
 
-    epub_output = resolve_epub_output(pdf_file)
+    epub_output = resolve_epub_output(source_file)
 
     ensure_build_dirs()
     example_created, metadata_created, bootstrap_example_fields = ensure_metadata_files(
         METADATA_FILE,
         METADATA_EXAMPLE_FILE,
-        pdf_file,
+        source_file,
     )
     example_metadata = load_example_metadata(METADATA_EXAMPLE_FILE)
     metadata, metadata_from_file, example_fields_used = load_book_metadata(
@@ -128,7 +128,7 @@ def main() -> None:
             "⚠️  Обязательные поля меты взяты из meta.example.json "
             f"(не найдены в PDF/meta.json): {fields}"
         )
-    print(f"✓ Исходный PDF: {pdf_file.name}")
+    print(f"✓ Исходный файл: {source_file.name}")
 
     metadata_view = {
         "title": metadata.title,
@@ -141,11 +141,11 @@ def main() -> None:
         return
 
     print("\n🔍 Проверяем доступность инструментов...")
-    ensure_pdftotext()
-    print("✓ pdftotext найден")
+    ensure_extractor_available(source_file)
+    print("✓ Инструмент извлечения найден")
 
-    print("\n📄 Извлекаю текст из PDF...")
-    full_text = extract_text(pdf_file, TEMP_TXT)
+    print("\n📄 Извлекаю текст из исходного файла...")
+    full_text = extract_text(source_file, TEMP_TXT)
 
     # Очищаем текст от ссылок, доменов и мусора
     full_text = remove_urls_and_domains(full_text)
@@ -198,7 +198,7 @@ def main() -> None:
     print("✓ CSS создан")
 
     print("\n🖼️  Проверяю обложку...")
-    cover_path = resolve_cover_image(pdf_file)
+    cover_path = resolve_cover_image(source_file)
     if cover_path:
         build_cover_page(cover_path, language)
         print(f"✓ Обложка: {cover_path.name}")

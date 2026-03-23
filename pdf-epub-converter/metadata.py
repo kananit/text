@@ -75,6 +75,8 @@ def _page_lines(text: str, max_lines: int = 20) -> list[str]:
     first_page = text.split("\f", 1)[0]
     lines = []
     for raw_line in first_page.splitlines():
+        # Strip invisible Unicode direction/format marks
+        raw_line = re.sub(r"[\u200b-\u200f\u202a-\u202e\ufeff]", "", raw_line)
         line = " ".join(raw_line.split()).strip()
         if line:
             lines.append(line)
@@ -168,23 +170,9 @@ def _extract_first_page_title_author(text: str) -> tuple[str | None, str | None]
     title_index = -1
 
     for index, line in enumerate(lines[:8]):
-        if title_candidate is None and _looks_like_title_line(line):
-            title_candidate = line
-            title_index = index
-            if index + 1 < len(lines):
-                subtitle_line = lines[index + 1]
-                if (
-                    _looks_like_title_line(subtitle_line)
-                    and not _looks_like_author_line(subtitle_line)
-                    and subtitle_line.lower() not in title_candidate.lower()
-                ):
-                    title_candidate = f"{title_candidate}: {subtitle_line}"
-
-        if (
-            author_candidate is None
-            and _looks_like_author_line(line)
-            and index >= max(0, title_index)
-        ):
+        # Check author before title: a line matching both (e.g. "Иван Иванов") is
+        # more likely an author name than a book title.
+        if author_candidate is None and _looks_like_author_line(line):
             prefix_match = None
             for pattern in AUTHOR_PREFIX_PATTERNS:
                 prefix_match = re.match(pattern, line, flags=re.IGNORECASE)
@@ -195,8 +183,26 @@ def _extract_first_page_title_author(text: str) -> tuple[str | None, str | None]
                 if prefix_match and prefix_match.lastindex
                 else line
             )
-            if title_candidate and author_candidate.lower() == title_candidate.lower():
-                author_candidate = None
+
+        if (
+            title_candidate is None
+            and _looks_like_title_line(line)
+            and not _looks_like_author_line(line)
+        ):
+            title_candidate = line
+            title_index = index
+            if index + 1 < len(lines):
+                subtitle_line = lines[index + 1]
+                subtitle_words = [
+                    w for w in re.split(r"\s+", subtitle_line.strip()) if w
+                ]
+                if (
+                    _looks_like_title_line(subtitle_line)
+                    and not _looks_like_author_line(subtitle_line)
+                    and subtitle_line.lower() not in title_candidate.lower()
+                    and len(subtitle_words) >= 2  # skip single-word city names etc.
+                ):
+                    title_candidate = f"{title_candidate}: {subtitle_line}"
 
         if title_candidate and author_candidate:
             break
@@ -204,27 +210,43 @@ def _extract_first_page_title_author(text: str) -> tuple[str | None, str | None]
     return title_candidate, author_candidate
 
 
-def _try_extract_pdf_text(pdf_file: Path) -> str | None:
-    command = [
-        "pdftotext",
-        "-layout",
-        "-f",
-        "1",
-        "-l",
-        "8",
-        str(pdf_file),
-        str(META_BOOTSTRAP_TEMP_TXT),
-    ]
-    result = subprocess.run(command, capture_output=True)
-    if result.returncode != 0:
-        return None
-    try:
-        return META_BOOTSTRAP_TEMP_TXT.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-    finally:
-        if META_BOOTSTRAP_TEMP_TXT.exists():
-            META_BOOTSTRAP_TEMP_TXT.unlink()
+def _try_extract_source_text(source_file: Path) -> str | None:
+    suffix = source_file.suffix.lower()
+
+    if suffix == ".pdf":
+        command = [
+            "pdftotext",
+            "-layout",
+            "-f",
+            "1",
+            "-l",
+            "8",
+            str(source_file),
+            str(META_BOOTSTRAP_TEMP_TXT),
+        ]
+        result = subprocess.run(command, capture_output=True)
+        if result.returncode != 0:
+            return None
+        try:
+            return META_BOOTSTRAP_TEMP_TXT.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        finally:
+            if META_BOOTSTRAP_TEMP_TXT.exists():
+                META_BOOTSTRAP_TEMP_TXT.unlink()
+
+    if suffix in {".doc", ".docx"}:
+        command = ["textutil", "-convert", "txt", "-stdout", str(source_file)]
+        result = subprocess.run(command, capture_output=True)
+        if result.returncode != 0:
+            return None
+        text = result.stdout.decode("utf-8", errors="replace")
+        # Same cleanup as extraction.py: convert line separators, strip invisible marks
+        text = text.replace("\u2028", "\n").replace("\u2029", "\n")
+        text = re.sub(r"[\u200b-\u200f\u202a-\u202e\ufeff]", "", text)
+        return text
+
+    return None
 
 
 def load_example_metadata(metadata_example_file: Path) -> BookMetadata:
@@ -348,9 +370,9 @@ def save_book_metadata(metadata_file: Path, metadata: BookMetadata) -> None:
 def ensure_metadata_files(
     metadata_file: Path,
     metadata_example_file: Path,
-    pdf_file: Path,
+    source_file: Path,
 ) -> tuple[bool, bool, list[str]]:
-    """Создаёт шаблон и при отсутствии meta.json пытается заполнить его из PDF с fallback к meta.example."""
+    """Создаёт шаблон и при отсутствии meta.json пытается заполнить его из исходного файла с fallback к meta.example."""
     example_created = False
     metadata_created = False
     example_fields_used_on_bootstrap: list[str] = []
@@ -361,10 +383,10 @@ def ensure_metadata_files(
 
     if not metadata_file.exists():
         example_metadata = load_example_metadata(metadata_example_file)
-        pdf_text = _try_extract_pdf_text(pdf_file)
-        if pdf_text:
+        source_text = _try_extract_source_text(source_file)
+        if source_text:
             metadata, missing_required = guess_metadata_from_text(
-                pdf_text,
+                source_text,
                 example_metadata,
             )
             example_fields_used_on_bootstrap = missing_required
