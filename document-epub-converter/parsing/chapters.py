@@ -314,6 +314,66 @@ def _is_probable_toc_chapter_line(lines: list[str], chapter_line_index: int) -> 
     return False
 
 
+def _is_numbered_heading_title_candidate(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if len(stripped) > 120:
+        return False
+    if is_chapter_heading(stripped):
+        return False
+    if re.fullmatch(r"\d{1,4}", stripped):
+        return False
+    if not re.search(r"[A-Za-zА-Яа-яЁё]", stripped):
+        return False
+    if re.search(r"https?://|www\.", stripped, flags=re.IGNORECASE):
+        return False
+    return True
+
+
+def _extract_explicit_chapter_numbers(lines: list[str]) -> list[int]:
+    numbers: list[int] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or not is_chapter_heading(stripped):
+            continue
+        match = re.search(
+            r"(?:глава|часть|раздел|chapter|part|section)\s+(\d{1,3})",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
+        number = int(match.group(1))
+        if 1 <= number <= 300:
+            numbers.append(number)
+    return numbers
+
+
+def _next_non_empty_line(
+    lines: list[str], start_index: int
+) -> tuple[int | None, str | None]:
+    index = start_index
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    if index < len(lines):
+        return index, lines[index].strip()
+    return None, None
+
+
+def _append_current_chapter_if_valid(
+    chapters: list[Chapter],
+    current_title: str | None,
+    current_content: list[str],
+) -> None:
+    if not current_title or not current_content:
+        return
+
+    final_content = "\n".join(current_content).strip()
+    if len(final_content) > _min_section_content_len(current_title):
+        chapters.append(Chapter(title=current_title, content=final_content))
+
+
 def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
     lines = [clean_line(line) for line in text.split("\n")]
     footer_titles = detect_running_footer_titles(
@@ -330,6 +390,15 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
         for line in lines
         if clean_paragraph(line).lower() not in repeated_noise_lines
     ]
+
+    # Apply "number + title" chapter-start heuristic only when explicit chapter headings
+    # are present but chapter 1 is missing (e.g. text starts with "1" + title, while
+    # later chapters are labeled "Глава 2", "Глава 3", ...).
+    explicit_numbers = _extract_explicit_chapter_numbers(lines)
+    enable_number_plus_title_detection = (
+        bool(explicit_numbers) and 1 not in explicit_numbers
+    )
+
     chapters: list[Chapter] = []
     current_title = None
     current_content: list[str] = []
@@ -349,20 +418,12 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
 
         # Support non-numbered section starts from TOC (e.g., "Отзывы", "Предисловие")
         # while ignoring TOC listing itself.
-        next_non_empty_line = None
-        j = i
-        while j < len(lines) and not lines[j].strip():
-            j += 1
-        if j < len(lines):
-            next_non_empty_line = lines[j].strip()
+        _, next_non_empty_line = _next_non_empty_line(lines, i)
 
         if _is_toc_title_heading_candidate(
             stripped, toc_titles_exact, next_non_empty_line
         ):
-            if current_title and current_content:
-                final_content = "\n".join(current_content).strip()
-                if len(final_content) > _min_section_content_len(current_title):
-                    chapters.append(Chapter(title=current_title, content=final_content))
+            _append_current_chapter_if_valid(chapters, current_title, current_content)
 
             current_title = _finalize_section_title(
                 resolve_title_with_toc(
@@ -375,14 +436,53 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
             continue
 
         if _is_front_matter_heading_candidate(stripped, next_non_empty_line):
-            if current_title and current_content:
-                final_content = "\n".join(current_content).strip()
-                if len(final_content) > _min_section_content_len(current_title):
-                    chapters.append(Chapter(title=current_title, content=final_content))
+            _append_current_chapter_if_valid(chapters, current_title, current_content)
 
             current_title = _finalize_section_title(stripped)
             current_content = []
             continue
+
+        # Support chapter starts like:
+        #   1
+        #   Много шума из-за церкви
+        if enable_number_plus_title_detection and re.fullmatch(r"\d{1,3}", stripped):
+            chapter_number = int(stripped)
+            if 1 <= chapter_number <= 300 and not _is_probable_toc_chapter_line(
+                lines, i - 1
+            ):
+                title_idx = i
+                while title_idx < len(lines) and not lines[title_idx].strip():
+                    title_idx += 1
+
+                if title_idx < len(lines):
+                    title_candidate = lines[title_idx].strip()
+                    if _is_numbered_heading_title_candidate(title_candidate):
+                        body_probe_idx = title_idx + 1
+                        while (
+                            body_probe_idx < len(lines)
+                            and not lines[body_probe_idx].strip()
+                        ):
+                            body_probe_idx += 1
+
+                        has_body_after_title = body_probe_idx < len(lines)
+                        if has_body_after_title:
+                            _append_current_chapter_if_valid(
+                                chapters,
+                                current_title,
+                                current_content,
+                            )
+
+                            combined = f"Глава {chapter_number}. {title_candidate}"
+                            current_title = _finalize_section_title(
+                                resolve_title_with_toc(
+                                    combined,
+                                    toc_entries,
+                                    used_toc_indices,
+                                )
+                            )
+                            current_content = []
+                            i = title_idx + 1
+                            continue
 
         if is_chapter_heading(stripped):
             if _is_probable_toc_chapter_line(lines, i - 1):
@@ -407,13 +507,11 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
             # Lookahead: если следующая непустая строка — короткий подзаголовок,
             # объединяем её с заголовком главы (напр. "Глава 3" + "Жертва")
             combined = stripped
-            j = i
-            while j < len(lines) and not lines[j].strip():
-                j += 1
-            if j < len(lines) and _is_subtitle_candidate(lines[j]):
-                subtitle = lines[j].strip()
+            next_idx, next_line = _next_non_empty_line(lines, i)
+            if next_idx is not None and next_line and _is_subtitle_candidate(next_line):
+                subtitle = next_line
                 combined = f"{stripped}. {subtitle}"
-                i = j + 1
+                i = next_idx + 1
 
             current_title = _finalize_section_title(
                 resolve_title_with_toc(combined, toc_entries, used_toc_indices)
@@ -423,10 +521,7 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
         if current_title:
             current_content.append(line)
 
-    if current_title and current_content:
-        final_content = "\n".join(current_content).strip()
-        if len(final_content) > _min_section_content_len(current_title):
-            chapters.append(Chapter(title=current_title, content=final_content))
+    _append_current_chapter_if_valid(chapters, current_title, current_content)
 
     if len(chapters) < 2:
         numbered_profile_chapters = identify_numbered_profile_chapters(
