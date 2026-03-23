@@ -252,6 +252,11 @@ def _normalize_heading_label(text: str) -> str:
     return normalize_title(text).lower().strip(" .:-—–")
 
 
+def _finalize_section_title(text: str) -> str:
+    title = normalize_title(text)
+    return re.sub(r"\s*[:：;；/\-—–]+\s*$", "", title)
+
+
 def _is_front_matter_heading_candidate(
     line: str,
     next_non_empty_line: str | None,
@@ -359,10 +364,12 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
                 if len(final_content) > _min_section_content_len(current_title):
                     chapters.append(Chapter(title=current_title, content=final_content))
 
-            current_title = resolve_title_with_toc(
-                stripped,
-                toc_entries,
-                used_toc_indices,
+            current_title = _finalize_section_title(
+                resolve_title_with_toc(
+                    stripped,
+                    toc_entries,
+                    used_toc_indices,
+                )
             )
             current_content = []
             continue
@@ -373,7 +380,7 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
                 if len(final_content) > _min_section_content_len(current_title):
                     chapters.append(Chapter(title=current_title, content=final_content))
 
-            current_title = normalize_title(stripped)
+            current_title = _finalize_section_title(stripped)
             current_content = []
             continue
 
@@ -408,8 +415,8 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
                 combined = f"{stripped}. {subtitle}"
                 i = j + 1
 
-            current_title = resolve_title_with_toc(
-                combined, toc_entries, used_toc_indices
+            current_title = _finalize_section_title(
+                resolve_title_with_toc(combined, toc_entries, used_toc_indices)
             )
             continue
 

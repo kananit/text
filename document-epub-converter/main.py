@@ -142,6 +142,19 @@ def main() -> None:
     if not await_metadata_confirmation(metadata_view, args.yes):
         return
 
+    # Re-read meta.json after confirmation to apply user edits made while paused.
+    metadata_after_confirm, metadata_loaded_after_confirm, _ = load_book_metadata(
+        METADATA_FILE,
+        example_metadata,
+    )
+    if metadata_loaded_after_confirm:
+        metadata = metadata_after_confirm
+        print(f"✓ Мета перечитана после подтверждения: {METADATA_FILE.name}")
+    else:
+        print(
+            f"⚠️  Не удалось перечитать {METADATA_FILE.name} после подтверждения; использую ранее загруженную мету"
+        )
+
     print("\n🔍 Проверяем доступность инструментов...")
     ensure_extractor_available(source_file)
     print("✓ Инструмент извлечения найден")
