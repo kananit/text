@@ -1,3 +1,4 @@
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -16,6 +17,10 @@ def escape_xml(text: str) -> str:
     text = text.replace(">", "&gt;")
     text = text.replace('"', "&quot;")
     return text
+
+
+def strip_leading_chapter_number(title: str) -> str:
+    return re.sub(r"^\s*\d+\.\s+", "", title).strip()
 
 
 def render_blocks_to_xhtml(blocks: list[dict]) -> str:
@@ -83,7 +88,10 @@ def build_toc_page(
     toc_source = (
         toc_entries
         if toc_entries
-        else [TocEntry(title=item.title, page="") for item in book_items]
+        else [
+            TocEntry(title=strip_leading_chapter_number(item.title), page="")
+            for item in book_items
+        ]
     )
 
     for idx, entry in enumerate(toc_source, 1):
@@ -383,7 +391,12 @@ def write_ncx(
     ]
     nav_source_items.extend(
         [
-            BookItem(id=item.id, title=item.title, href=item.href, order=index + 2)
+            BookItem(
+                id=item.id,
+                title=strip_leading_chapter_number(item.title),
+                href=item.href,
+                order=index + 2,
+            )
             for index, item in enumerate(book_items)
         ]
     )

@@ -31,6 +31,8 @@ from parsing import (
     extract_toc_entries,
     fallback_chapters,
     identify_chapters,
+    remove_urls_and_domains,
+    remove_boilerplate_text,
 )
 
 
@@ -144,6 +146,11 @@ def main() -> None:
 
     print("\n📄 Извлекаю текст из PDF...")
     full_text = extract_text(pdf_file, TEMP_TXT)
+
+    # Очищаем текст от ссылок, доменов и мусора
+    full_text = remove_urls_and_domains(full_text)
+    full_text = remove_boilerplate_text(full_text)
+
     char_count = len(full_text)
     word_count = len(full_text.split())
     print(f"✓ Извлечено: {char_count:,} символов, ~{word_count // 250} страниц")
@@ -165,8 +172,12 @@ def main() -> None:
     print(f"✓ Найдено {len(chapters)} глав/частей\n")
     print("📚 СТРУКТУРА ОГЛАВЛЕНИЯ:")
     for index, chapter in enumerate(chapters[:10], 1):
+        display_title = chapter.title
+        number_prefix = f"{index}. "
+        if display_title.startswith(number_prefix):
+            display_title = display_title[len(number_prefix) :]
         words = len(chapter.content.split())
-        print(f"   {index:2d}. {chapter.title:60s} ({words:5d} слов)")
+        print(f"   {index:2d}. {display_title:60s} ({words:5d} слов)")
     if len(chapters) > 10:
         print(f"   ... и еще {len(chapters) - 10} глав")
 

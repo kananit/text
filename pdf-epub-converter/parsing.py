@@ -27,6 +27,60 @@ def clean_paragraph(text: str) -> str:
     return text.strip()
 
 
+def remove_urls_and_domains(text: str) -> str:
+    """Удаляет URL и типичные домены мусорных сайтов (работает построчно)."""
+    lines = []
+    for line in text.split("\n"):
+        # Удаляем полные URL (http://, https://)
+        line = re.sub(r"https?://\S+", "", line, flags=re.IGNORECASE)
+        # Удаляем конкретные известные домены мусора
+        line = re.sub(r"filosoff\.org", "", line, flags=re.IGNORECASE)
+        line = re.sub(r"libking\.ru", "", line, flags=re.IGNORECASE)
+        line = re.sub(r"flibusta\.site", "", line, flags=re.IGNORECASE)
+        # Очищаем избыточные пробелы в этой строке
+        line = re.sub(r"\s+", " ", line).strip()
+        if line:  # добавляем только непустые строки
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def remove_boilerplate_text(text: str) -> str:
+    """Удаляет типичные фразы благодарности, рекламу и мусор (по строкам)."""
+    lines = text.split("\n")
+    result = []
+
+    # Очень специфичные паттерны для полных строк (рекламы, благодарности)
+    skip_patterns = [
+        r"^спасибо.{0,50}скачал.{0,50}книгу",
+        r"^thank you for downloading",
+        r"^спасибо за скачивание",
+        r"^если вам понравилась",
+        r"^поделитесь с друзьями",
+        r"^присоединяйтесь к",
+        r"^подпишитесь на",
+        r"^найти нас в",
+        r"^все права защищены",
+        r"^copyright",
+    ]
+
+    for line in lines:
+        # Удаляем маркеры страниц (например: "Страница 2")
+        line = re.sub(r"\b(?:страница|page)\s+\d{1,4}\b", "", line, flags=re.IGNORECASE)
+        line = re.sub(r"\s+", " ", line).strip()
+
+        should_skip = False
+        # Проверяем только начало строки и ограничиваем матч 50 символами
+        for pattern in skip_patterns:
+            if re.search(pattern, line[:100], flags=re.IGNORECASE):
+                should_skip = True
+                break
+
+        if not should_skip and line.strip():  # Не пустая строка
+            result.append(line)
+
+    return "\n".join(result)
+
+
 def normalize_title(title: str) -> str:
     title = clean_paragraph(title)
     title = re.sub(r"\s{2,}", " ", title)
@@ -61,6 +115,30 @@ def detect_running_footer_titles(
         counts[title.lower()] += 1
 
     return {title for title, count in counts.items() if count >= min_occurrences}
+
+
+def detect_repeated_noise_lines(lines: list[str], min_occurrences: int = 5) -> set[str]:
+    counts: Counter[str] = Counter()
+    for line in lines:
+        normalized = clean_paragraph(line)
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        counts[lowered] += 1
+
+    repeated_noise: set[str] = set()
+    for lowered, count in counts.items():
+        if count < min_occurrences:
+            continue
+        if re.fullmatch(r"\d{1,4}", lowered):
+            continue
+        if re.fullmatch(r"[\W_]+", lowered):
+            continue
+        if is_chapter_heading(lowered):
+            continue
+        repeated_noise.add(lowered)
+
+    return repeated_noise
 
 
 def is_running_footer_line(line: str, footer_titles: set[str]) -> bool:
@@ -190,13 +268,107 @@ def resolve_title_with_toc(
     return normalized
 
 
+def collect_profile_heading_parts(
+    lines: list[str],
+    start_index: int,
+    repeated_noise_lines: set[str],
+) -> tuple[str, str, int] | None:
+    parts: list[str] = []
+    index = start_index + 1
+
+    while index < len(lines) and len(parts) < 2 and index <= start_index + 8:
+        candidate = lines[index].strip()
+        index += 1
+
+        if not candidate:
+            continue
+        if clean_paragraph(candidate).lower() in repeated_noise_lines:
+            continue
+        if re.fullmatch(r"[❖•·*]+", candidate):
+            continue
+
+        parts.append(candidate)
+
+    if len(parts) < 2:
+        return None
+
+    subtitle_line, names_line = parts[0], parts[1]
+    if not re.search(r"[A-Za-zА-Яа-яЁё]", subtitle_line):
+        return None
+    if not re.search(r"[A-Za-zА-Яа-яЁё]", names_line):
+        return None
+    if len(subtitle_line) > 120 or len(names_line) > 120:
+        return None
+    if not re.search(r"\b(и|and)\b", names_line, flags=re.IGNORECASE):
+        return None
+
+    return subtitle_line, names_line, index
+
+
+def identify_numbered_profile_chapters(
+    lines: list[str], repeated_noise_lines: set[str]
+) -> list[Chapter]:
+    candidates: list[tuple[int, int, str, int]] = []
+
+    for i in range(len(lines) - 1):
+        number_line = lines[i].strip()
+        if not re.fullmatch(r"\d{1,3}", number_line):
+            continue
+
+        number = int(number_line)
+        if number < 1 or number > 40:
+            continue
+
+        parts = collect_profile_heading_parts(lines, i, repeated_noise_lines)
+        if not parts:
+            continue
+
+        subtitle_line, names_line, body_start = parts
+        subtitle = normalize_title(subtitle_line)
+        names = normalize_title(names_line)
+        title = f"{number}. {subtitle} — {names}"
+        candidates.append((i, number, title, body_start))
+
+    if len(candidates) < 2:
+        return []
+
+    # Берем последовательность с 1 и дальше по порядку: 1,2,3...
+    start_pos = next((idx for idx, item in enumerate(candidates) if item[1] == 1), 0)
+    filtered: list[tuple[int, int, str, int]] = [candidates[start_pos]]
+
+    for start_idx, number, title, body_start in candidates[start_pos + 1 :]:
+        if number == filtered[-1][1] + 1:
+            filtered.append((start_idx, number, title, body_start))
+
+    if len(filtered) < 2:
+        return []
+
+    chapters: list[Chapter] = []
+    for idx, (start_idx, _number, title, content_start) in enumerate(filtered):
+        content_end = filtered[idx + 1][0] if idx + 1 < len(filtered) else len(lines)
+        content = "\n".join(lines[content_start:content_end]).strip()
+        if len(content) > 300:
+            chapters.append(Chapter(title=title, content=content))
+
+    return chapters
+
+
 def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
     lines = [clean_line(line) for line in text.split("\n")]
     footer_titles = detect_running_footer_titles(
         lines,
         min_occurrences=FOOTER_MIN_OCCURRENCES,
     )
+    repeated_noise_lines = detect_repeated_noise_lines(
+        lines,
+        min_occurrences=FOOTER_MIN_OCCURRENCES,
+    )
     lines = [line for line in lines if not is_running_footer_line(line, footer_titles)]
+    lines = [
+        line
+        for line in lines
+        if clean_paragraph(line).lower() not in repeated_noise_lines
+    ]
     chapters: list[Chapter] = []
     current_title = None
     current_content: list[str] = []
@@ -234,6 +406,14 @@ def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
         final_content = "\n".join(current_content).strip()
         if len(final_content) > 300:
             chapters.append(Chapter(title=current_title, content=final_content))
+
+    if len(chapters) < 2:
+        numbered_profile_chapters = identify_numbered_profile_chapters(
+            lines,
+            repeated_noise_lines,
+        )
+        if len(numbered_profile_chapters) >= 2:
+            return numbered_profile_chapters
 
     return chapters
 
