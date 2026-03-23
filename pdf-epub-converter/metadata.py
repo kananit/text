@@ -12,7 +12,7 @@ from config import (
 from models import BookMetadata
 
 
-META_BOOTSTRAP_TEMP_TXT = Path("/tmp/pdf_meta_bootstrap.txt")
+METADATA_BOOTSTRAP_TEXT_FILE = Path("/tmp/document_meta_bootstrap.txt")
 
 TITLE_PATTERNS = [
     r"^\s*Название\s*[:\-]\s*(.+)$",
@@ -222,18 +222,20 @@ def _try_extract_source_text(source_file: Path) -> str | None:
             "-l",
             "8",
             str(source_file),
-            str(META_BOOTSTRAP_TEMP_TXT),
+            str(METADATA_BOOTSTRAP_TEXT_FILE),
         ]
         result = subprocess.run(command, capture_output=True)
         if result.returncode != 0:
             return None
         try:
-            return META_BOOTSTRAP_TEMP_TXT.read_text(encoding="utf-8", errors="replace")
+            return METADATA_BOOTSTRAP_TEXT_FILE.read_text(
+                encoding="utf-8", errors="replace"
+            )
         except OSError:
             return None
         finally:
-            if META_BOOTSTRAP_TEMP_TXT.exists():
-                META_BOOTSTRAP_TEMP_TXT.unlink()
+            if METADATA_BOOTSTRAP_TEXT_FILE.exists():
+                METADATA_BOOTSTRAP_TEXT_FILE.unlink()
 
     if suffix in {".doc", ".docx"}:
         command = ["textutil", "-convert", "txt", "-stdout", str(source_file)]

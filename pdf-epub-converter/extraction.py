@@ -37,7 +37,7 @@ def ensure_extractor_available(source_file: Path) -> None:
 
 def _extract_pdf_text(
     source_file: Path,
-    temp_txt: Path,
+    extracted_text_file: Path,
     start_page: int | None = None,
     end_page: int | None = None,
 ) -> str:
@@ -46,14 +46,14 @@ def _extract_pdf_text(
         command.extend(["-f", str(start_page)])
     if end_page is not None:
         command.extend(["-l", str(end_page)])
-    command.extend([str(source_file), str(temp_txt)])
+    command.extend([str(source_file), str(extracted_text_file)])
 
     result = subprocess.run(command, capture_output=True)
     if result.returncode != 0:
         print("❌ Ошибка при извлечении текста из PDF-файла")
         sys.exit(1)
 
-    return temp_txt.read_text(encoding="utf-8", errors="replace")
+    return extracted_text_file.read_text(encoding="utf-8", errors="replace")
 
 
 def _extract_doc_text(source_file: Path) -> str:
@@ -79,13 +79,13 @@ def _extract_doc_text(source_file: Path) -> str:
 
 def extract_text(
     source_file: Path,
-    temp_txt: Path,
+    extracted_text_file: Path,
     start_page: int | None = None,
     end_page: int | None = None,
 ) -> str:
     suffix = source_file.suffix.lower()
     if suffix == ".pdf":
-        return _extract_pdf_text(source_file, temp_txt, start_page, end_page)
+        return _extract_pdf_text(source_file, extracted_text_file, start_page, end_page)
     if suffix in {".doc", ".docx"}:
         return _extract_doc_text(source_file)
 

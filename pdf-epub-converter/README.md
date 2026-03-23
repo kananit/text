@@ -22,7 +22,7 @@
 1. Сгенерировать/обновить метаданные из исходного файла:
 
 ```bash
-python3 pdf-epub-converter/extract_metadata_from_pdf.py
+python3 pdf-epub-converter/extract_metadata.py
 ```
 
 2. Проверить и при необходимости вручную поправить `pdf-epub/meta.json`.

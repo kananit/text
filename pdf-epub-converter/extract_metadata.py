@@ -11,11 +11,10 @@ from metadata import (
     save_book_metadata,
 )
 
-META_TEMP_TXT = Path("/tmp/pdf_meta_extracted.txt")
+METADATA_TEMP_TEXT_FILE = Path("/tmp/document_meta_extracted.txt")
 
 
 def main() -> None:
-    ensure_extractor_available
     fallback = load_example_metadata(METADATA_EXAMPLE_FILE)
 
     try:
@@ -26,13 +25,18 @@ def main() -> None:
 
     ensure_extractor_available(source_file)
     print("🔎 Извлекаю текст из исходного файла для определения меты...")
-    text = extract_text(source_file, META_TEMP_TXT, start_page=1, end_page=8)
+    text = extract_text(
+        source_file,
+        METADATA_TEMP_TEXT_FILE,
+        start_page=1,
+        end_page=8,
+    )
 
     metadata, missing_required = guess_metadata_from_text(text, fallback)
     save_book_metadata(METADATA_FILE, metadata)
 
-    if META_TEMP_TXT.exists():
-        META_TEMP_TXT.unlink()
+    if METADATA_TEMP_TEXT_FILE.exists():
+        METADATA_TEMP_TEXT_FILE.unlink()
 
     print(f"✓ Исходный файл: {source_file.name}")
     print(f"✓ Файл метаданных сохранён: {METADATA_FILE}")

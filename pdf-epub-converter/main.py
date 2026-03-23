@@ -4,9 +4,9 @@
 import argparse
 
 from config import (
+    EXTRACTED_TEXT_FILE,
     METADATA_EXAMPLE_FILE,
     METADATA_FILE,
-    TEMP_TXT,
     cleanup_temp_files,
     ensure_build_dirs,
     resolve_epub_output,
@@ -147,7 +147,7 @@ def main() -> None:
     print("✓ Инструмент извлечения найден")
 
     print("\n📄 Извлекаю текст из исходного файла...")
-    full_text = extract_text(source_file, TEMP_TXT)
+    full_text = extract_text(source_file, EXTRACTED_TEXT_FILE)
 
     # Очищаем текст от ссылок, доменов и мусора
     full_text = remove_urls_and_domains(full_text)

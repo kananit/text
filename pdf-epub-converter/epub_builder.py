@@ -4,8 +4,8 @@ import zipfile
 from pathlib import Path
 
 from config import (
-    BUILD_DIR,
     COVER_MEDIA_TYPES,
+    EPUB_BUILD_DIR,
 )
 from models import BookItem, BookMetadata, Chapter, TocEntry
 from parsing import chapter_blocks
@@ -71,7 +71,7 @@ def build_chapter_documents(chapters: list[Chapter], language: str) -> list[Book
 </body>
 </html>"""
 
-        xhtml_file = BUILD_DIR / "OEBPS" / "text" / f"{file_id}.xhtml"
+        xhtml_file = EPUB_BUILD_DIR / "OEBPS" / "text" / f"{file_id}.xhtml"
         xhtml_file.write_text(xhtml, encoding="utf-8")
         book_items.append(
             BookItem(id=file_id, href=f"text/{file_id}.xhtml", title=title, order=idx)
@@ -124,7 +124,7 @@ def build_toc_page(
 </body>
 </html>"""
 
-    (BUILD_DIR / "OEBPS" / "text" / f"{toc_page_id}.xhtml").write_text(
+    (EPUB_BUILD_DIR / "OEBPS" / "text" / f"{toc_page_id}.xhtml").write_text(
         toc_xhtml,
         encoding="utf-8",
     )
@@ -133,13 +133,13 @@ def build_toc_page(
 
 def write_stylesheet() -> None:
     style_src = Path(__file__).with_name("style.css")
-    dest = BUILD_DIR / "OEBPS" / "css" / "style.css"
+    dest = EPUB_BUILD_DIR / "OEBPS" / "css" / "style.css"
     shutil.copy2(style_src, dest)
 
 
 def build_cover_page(cover_path: Path, language: str) -> str:
     """Копирует обложку в EPUB и создаёт cover-page.xhtml. Возвращает ID страницы."""
-    dest = BUILD_DIR / "OEBPS" / "images" / cover_path.name
+    dest = EPUB_BUILD_DIR / "OEBPS" / "images" / cover_path.name
     shutil.copy2(cover_path, dest)
 
     cover_title = "Обложка" if language == "ru" else "Cover"
@@ -162,7 +162,7 @@ def build_cover_page(cover_path: Path, language: str) -> str:
   </div>
 </body>
 </html>"""
-    (BUILD_DIR / "OEBPS" / "text" / "cover-page.xhtml").write_text(
+    (EPUB_BUILD_DIR / "OEBPS" / "text" / "cover-page.xhtml").write_text(
         cover_xhtml, encoding="utf-8"
     )
     return "cover-page"
@@ -216,7 +216,7 @@ def write_opf(
   <spine toc="ncx">
 {cover_spine}{extra_spine}{spine}  </spine>
 </package>"""
-    (BUILD_DIR / "OEBPS" / "content.opf").write_text(opf, encoding="utf-8")
+    (EPUB_BUILD_DIR / "OEBPS" / "content.opf").write_text(opf, encoding="utf-8")
 
 
 def write_ncx(
@@ -268,7 +268,7 @@ def write_ncx(
   <navMap>
 {nav_points}  </navMap>
 </ncx>"""
-    (BUILD_DIR / "OEBPS" / "toc.ncx").write_text(ncx, encoding="utf-8")
+    (EPUB_BUILD_DIR / "OEBPS" / "toc.ncx").write_text(ncx, encoding="utf-8")
 
 
 def write_container() -> None:
@@ -278,11 +278,13 @@ def write_container() -> None:
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
 </container>"""
-    (BUILD_DIR / "META-INF" / "container.xml").write_text(container, encoding="utf-8")
+    (EPUB_BUILD_DIR / "META-INF" / "container.xml").write_text(
+        container, encoding="utf-8"
+    )
 
 
 def write_mimetype() -> None:
-    (BUILD_DIR / "mimetype").write_text("application/epub+zip", encoding="utf-8")
+    (EPUB_BUILD_DIR / "mimetype").write_text("application/epub+zip", encoding="utf-8")
 
 
 def package_epub(
@@ -292,25 +294,27 @@ def package_epub(
     cover_path: Path | None = None,
 ) -> None:
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.write(BUILD_DIR / "mimetype", "mimetype", zipfile.ZIP_STORED)
+        archive.write(EPUB_BUILD_DIR / "mimetype", "mimetype", zipfile.ZIP_STORED)
         archive.write(
-            BUILD_DIR / "META-INF" / "container.xml", "META-INF/container.xml"
+            EPUB_BUILD_DIR / "META-INF" / "container.xml", "META-INF/container.xml"
         )
-        archive.write(BUILD_DIR / "OEBPS" / "content.opf", "OEBPS/content.opf")
-        archive.write(BUILD_DIR / "OEBPS" / "toc.ncx", "OEBPS/toc.ncx")
-        archive.write(BUILD_DIR / "OEBPS" / "css" / "style.css", "OEBPS/css/style.css")
+        archive.write(EPUB_BUILD_DIR / "OEBPS" / "content.opf", "OEBPS/content.opf")
+        archive.write(EPUB_BUILD_DIR / "OEBPS" / "toc.ncx", "OEBPS/toc.ncx")
+        archive.write(
+            EPUB_BUILD_DIR / "OEBPS" / "css" / "style.css", "OEBPS/css/style.css"
+        )
         if cover_path is not None:
             archive.write(
-                BUILD_DIR / "OEBPS" / "images" / cover_path.name,
+                EPUB_BUILD_DIR / "OEBPS" / "images" / cover_path.name,
                 f"OEBPS/images/{cover_path.name}",
             )
             archive.write(
-                BUILD_DIR / "OEBPS" / "text" / "cover-page.xhtml",
+                EPUB_BUILD_DIR / "OEBPS" / "text" / "cover-page.xhtml",
                 "OEBPS/text/cover-page.xhtml",
             )
         archive.write(
-            BUILD_DIR / "OEBPS" / "text" / f"{toc_page_id}.xhtml",
+            EPUB_BUILD_DIR / "OEBPS" / "text" / f"{toc_page_id}.xhtml",
             f"OEBPS/text/{toc_page_id}.xhtml",
         )
         for item in book_items:
-            archive.write(BUILD_DIR / "OEBPS" / item.href, f"OEBPS/{item.href}")
+            archive.write(EPUB_BUILD_DIR / "OEBPS" / item.href, f"OEBPS/{item.href}")
