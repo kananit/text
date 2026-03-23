@@ -25,6 +25,10 @@ def render_blocks_to_xhtml(blocks: list[dict]) -> str:
             chunks.append(f"    <p>{escape_xml(block['text'])}</p>")
         elif block["type"] == "h2":
             chunks.append(f"    <h2>{escape_xml(block['text'])}</h2>")
+        elif block["type"] == "h3_small":
+            chunks.append(
+                f"    <h3 class=\"minor-subtitle\">{escape_xml(block['text'])}</h3>"
+            )
         elif block["type"] == "table":
             rows = block["rows"]
             chunks.append('    <div class="table-wrap">\n    <table>')
@@ -177,9 +181,25 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h2 {
-    font-size: 1.4em;
+    font-size: 1.2em;
     border-bottom: 1px solid #dddddd;
     padding-bottom: 0.3em;
+}
+
+h3 {
+    font-size: 1.1em;
+}
+
+h3.minor-subtitle {
+    font-size: 0.95em;
+    margin-top: 0.6em;
+    margin-bottom: 0.35em;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+}
+
+h4, h5, h6 {
+    font-size: 1em;
 }
 
 .table-wrap {

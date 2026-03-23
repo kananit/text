@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
+
 from config import (
     METADATA_EXAMPLE_FILE,
     METADATA_FILE,
@@ -32,7 +34,51 @@ from parsing import (
 )
 
 
+def await_metadata_confirmation(
+    metadata: dict[str, str], skip_confirmation: bool = False
+) -> bool:
+    if skip_confirmation:
+        print("⏩ Пропуск ручного подтверждения meta.json (--yes)")
+        return True
+
+    print("✋ Проверьте файл meta.json перед продолжением:")
+    print("┌─ META")
+    print(f"│ path: {METADATA_FILE}")
+    print(f"│ title: {metadata['title']}")
+    print(f"│ creator: {metadata['creator']}")
+    print(f"│ publisher: {metadata['publisher']}")
+    print(f"│ year: {metadata['year']}")
+    print(f"│ description: {metadata['description']}")
+    print("└─")
+    print("Откройте файл, при необходимости исправьте поля и вернитесь в терминал.")
+    print("Для продолжения введите: y / yes. Любая другая команда прерывает сборку")
+
+    try:
+        command = input("Команда > ").strip().lower()
+    except EOFError:
+        print("⏸️ Ввод недоступен. Сборка остановлена.")
+        return False
+
+    if command in {"y", "yes"}:
+        return True
+
+    print("⏸️ Сборка остановлена пользователем.")
+    return False
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="PDF to EPUB converter")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Пропустить интерактивное подтверждение meta.json (режим CI)",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+
     try:
         pdf_file = resolve_pdf_file()
     except FileNotFoundError as exc:
@@ -81,6 +127,16 @@ def main() -> None:
             f"(не найдены в PDF/meta.json): {fields}"
         )
     print(f"✓ Исходный PDF: {pdf_file.name}")
+
+    metadata_view = {
+        "title": metadata.title,
+        "creator": metadata.creator,
+        "publisher": metadata.publisher,
+        "year": metadata.year,
+        "description": metadata.description,
+    }
+    if not await_metadata_confirmation(metadata_view, args.yes):
+        return
 
     print("\n🔍 Проверяем доступность инструментов...")
     ensure_pdftotext()

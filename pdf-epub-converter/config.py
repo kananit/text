@@ -15,6 +15,8 @@ EXAMPLE_META_YEAR = "2000"
 
 REQUIRED_META_FIELDS = ("title", "creator", "year")
 
+FOOTER_MIN_OCCURRENCES = 5
+
 
 _COVER_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
 

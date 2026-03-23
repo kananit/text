@@ -32,6 +32,15 @@ python3 pdf-epub-converter/extract_metadata_from_pdf.py
 python3 pdf-epub-converter/main.py
 ```
 
+Для неинтерактивного режима (CI), чтобы не ждать ручного подтверждения `meta.json`:
+
+```bash
+python3 pdf-epub-converter/main.py --yes
+```
+
+В интерактивном режиме для продолжения введите `y` или `yes`.
+Любая другая команда прерывает сборку.
+
 ## Пример `meta.json`
 
 ```json

@@ -1,6 +1,7 @@
 import re
 from collections import Counter
 
+from config import FOOTER_MIN_OCCURRENCES
 from models import Chapter, TocEntry
 
 
@@ -25,6 +26,46 @@ def normalize_title(title: str) -> str:
     title = clean_paragraph(title)
     title = re.sub(r"\s{2,}", " ", title)
     return title[:120]
+
+
+def detect_running_footer_titles(
+    lines: list[str], min_occurrences: int = 5
+) -> set[str]:
+    counts: Counter[str] = Counter()
+    for line in lines:
+        normalized = clean_paragraph(line)
+        if not normalized:
+            continue
+
+        match = re.match(r"^(?P<title>.+?)\s+(?P<page>\d{1,4})$", normalized)
+        if not match:
+            continue
+
+        title = match.group("title").strip()
+        if len(title) < 6:
+            continue
+        if is_chapter_heading(title):
+            continue
+        if re.match(
+            r"^(содержание|оглавление|contents|table of contents)$",
+            title,
+            re.IGNORECASE,
+        ):
+            continue
+
+        counts[title.lower()] += 1
+
+    return {title for title, count in counts.items() if count >= min_occurrences}
+
+
+def is_running_footer_line(line: str, footer_titles: set[str]) -> bool:
+    if not footer_titles:
+        return False
+    normalized = clean_paragraph(line)
+    match = re.match(r"^(?P<title>.+?)\s+(?P<page>\d{1,4})$", normalized)
+    if not match:
+        return False
+    return match.group("title").strip().lower() in footer_titles
 
 
 def is_chapter_heading(line: str) -> bool:
@@ -53,6 +94,11 @@ def chapter_number_key(title: str):
 
 def extract_toc_entries(text: str) -> list[TocEntry]:
     lines = [clean_line(line) for line in text.split("\n")]
+    footer_titles = detect_running_footer_titles(
+        lines,
+        min_occurrences=FOOTER_MIN_OCCURRENCES,
+    )
+    lines = [line for line in lines if not is_running_footer_line(line, footer_titles)]
     toc_header = re.compile(
         r"^(содержание|оглавление|contents|table of contents)\s*$",
         re.IGNORECASE,
@@ -141,6 +187,11 @@ def resolve_title_with_toc(
 
 def identify_chapters(text: str, toc_entries: list[TocEntry]) -> list[Chapter]:
     lines = [clean_line(line) for line in text.split("\n")]
+    footer_titles = detect_running_footer_titles(
+        lines,
+        min_occurrences=FOOTER_MIN_OCCURRENCES,
+    )
+    lines = [line for line in lines if not is_running_footer_line(line, footer_titles)]
     chapters: list[Chapter] = []
     current_title = None
     current_content: list[str] = []
@@ -202,6 +253,16 @@ def split_columns(line: str) -> list[str]:
     return [clean_paragraph(cell) for cell in raw_cells if cell.strip()]
 
 
+def is_minor_subheading(text: str) -> bool:
+    letters = re.findall(r"[A-Za-zА-Яа-яЁё]", text)
+    if len(letters) < 8:
+        return False
+
+    uppercase = [ch for ch in letters if ch.isupper()]
+    uppercase_ratio = len(uppercase) / len(letters)
+    return uppercase_ratio >= 0.85
+
+
 def parse_table_rows(block_lines: list[str]):
     rows = []
     for line in block_lines:
@@ -250,7 +311,10 @@ def chapter_blocks(content: str) -> list[dict]:
         if len(non_empty) == 1:
             one = clean_paragraph(non_empty[0])
             if one and len(one) < 90 and not re.search(r"[\.!?…:]$", one):
-                blocks.append({"type": "h2", "text": one})
+                if is_minor_subheading(one):
+                    blocks.append({"type": "h3_small", "text": one})
+                else:
+                    blocks.append({"type": "h2", "text": one})
                 return
 
         paragraph = clean_paragraph(" ".join(non_empty))
