@@ -7,9 +7,11 @@ from config import (
     TEMP_TXT,
     cleanup_temp_files,
     ensure_build_dirs,
+    resolve_cover_image,
 )
 from epub_builder import (
     build_chapter_documents,
+    build_cover_page,
     build_toc_page,
     package_epub,
     write_container,
@@ -82,8 +84,19 @@ def main() -> None:
     write_stylesheet()
     print("✓ CSS создан")
 
+    print("\n🖼️  Проверяю обложку...")
+    cover_path = resolve_cover_image()
+    if cover_path:
+        cover_page_id = build_cover_page(cover_path, language)
+        print(f"✓ Обложка: {cover_path.name}")
+    else:
+        cover_page_id = None
+        print(
+            "⚠️  Обложка не найдена — положите cover.jpg (или cover.png) в папку pdf-epub/"
+        )
+
     print("📦 Создаю метаданные EPUB...")
-    write_opf(book_items, toc_page_id, language)
+    write_opf(book_items, toc_page_id, language, cover_path)
     print("✓ content.opf создан")
     write_ncx(book_items, toc_page_id, language)
     print("✓ toc.ncx (оглавление) создан")
@@ -93,7 +106,7 @@ def main() -> None:
     print("✓ mimetype создан")
 
     print("\n📦 Упаковываю в EPUB архив...")
-    package_epub(book_items, toc_page_id)
+    package_epub(book_items, toc_page_id, cover_path)
     cleanup_temp_files()
 
     file_size = EPUB_OUTPUT.stat().st_size / (1024 * 1024)

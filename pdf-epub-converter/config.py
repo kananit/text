@@ -9,13 +9,34 @@ BUILD_DIR = PDF_DIR / "epub_from_pdf"
 TEMP_TXT = Path("/tmp/war_saints_extracted.txt")
 EPUB_OUTPUT = PDF_DIR / "WarOnTheSaints_Professional.epub"
 
-BOOK_TITLE = "War with the Saints"
-BOOK_CREATOR = "Jessie Penn-Lewis"
-BOOK_CONTRIBUTOR = "Evan Roberts"
-BOOK_DESCRIPTION = (
-    "A classic work on spiritual warfare, deliverance from demonic oppression, "
-    "and Christian victory."
-)
+BOOK_TITLE = "Война со святыми"
+BOOK_CREATOR = "Эван Робертс, Дж. Пенн-Луис"
+BOOK_PUBLISHER = "ХБИФ"
+BOOK_YEAR = "1997"
+BOOK_DESCRIPTION = "Война со святыми. Издание 1997 года."
+
+
+_COVER_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
+
+COVER_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+
+
+def resolve_cover_image() -> Path | None:
+    """Ищет обложку рядом с PDF: <имя_pdf>_cover.ext или cover.ext"""
+    for ext in _COVER_EXTENSIONS:
+        candidate = PDF_DIR / f"{PDF_FILE.stem}_cover{ext}"
+        if candidate.exists():
+            return candidate
+    for ext in _COVER_EXTENSIONS:
+        candidate = PDF_DIR / f"cover{ext}"
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def cleanup_temp_files() -> None:
@@ -29,4 +50,5 @@ def ensure_build_dirs() -> None:
     cleanup_temp_files()
     (BUILD_DIR / "OEBPS" / "text").mkdir(parents=True, exist_ok=True)
     (BUILD_DIR / "OEBPS" / "css").mkdir(parents=True, exist_ok=True)
+    (BUILD_DIR / "OEBPS" / "images").mkdir(parents=True, exist_ok=True)
     (BUILD_DIR / "META-INF").mkdir(parents=True, exist_ok=True)

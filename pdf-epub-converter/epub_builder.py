@@ -1,12 +1,15 @@
+import shutil
 import zipfile
-from datetime import datetime
+from pathlib import Path
 
 from config import (
-    BOOK_CONTRIBUTOR,
     BOOK_CREATOR,
     BOOK_DESCRIPTION,
+    BOOK_PUBLISHER,
     BOOK_TITLE,
+    BOOK_YEAR,
     BUILD_DIR,
+    COVER_MEDIA_TYPES,
     EPUB_OUTPUT,
 )
 from models import BookItem, Chapter, TocEntry
@@ -268,7 +271,41 @@ blockquote {
     (BUILD_DIR / "OEBPS" / "css" / "style.css").write_text(css, encoding="utf-8")
 
 
-def write_opf(book_items: list[BookItem], toc_page_id: str, language: str) -> None:
+def build_cover_page(cover_path: Path, language: str) -> str:
+    """Копирует обложку в EPUB и создаёт cover-page.xhtml. Возвращает ID страницы."""
+    dest = BUILD_DIR / "OEBPS" / "images" / cover_path.name
+    shutil.copy2(cover_path, dest)
+
+    cover_title = "Обложка" if language == "ru" else "Cover"
+    cover_xhtml = f"""<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="{language}">
+<head>
+  <title>{cover_title}</title>
+  <link rel="stylesheet" type="text/css" href="../css/style.css"/>
+  <style type="text/css">
+    body {{ margin: 0; padding: 0; text-align: center; }}
+    .cover-img {{ max-width: 100%; height: auto; display: block; margin: 0 auto; }}
+  </style>
+</head>
+<body>
+  <div>
+    <img src="../images/{cover_path.name}" alt="{cover_title}" class="cover-img"/>
+  </div>
+</body>
+</html>"""
+    (BUILD_DIR / "OEBPS" / "text" / "cover-page.xhtml").write_text(
+        cover_xhtml, encoding="utf-8"
+    )
+    return "cover-page"
+
+
+def write_opf(
+    book_items: list[BookItem],
+    toc_page_id: str,
+    language: str,
+    cover_path: Path | None = None,
+) -> None:
     manifest = "\n".join(
         [
             f'    <item id="{item.id}" href="{item.href}" media-type="application/xhtml+xml"/>'
@@ -279,24 +316,36 @@ def write_opf(book_items: list[BookItem], toc_page_id: str, language: str) -> No
     extra_manifest = f'    <item id="{toc_page_id}" href="text/{toc_page_id}.xhtml" media-type="application/xhtml+xml"/>\n'
     extra_spine = f'    <itemref idref="{toc_page_id}"/>\n'
 
+    cover_meta = ""
+    cover_manifest = ""
+    cover_spine = ""
+    if cover_path is not None:
+        media_type = COVER_MEDIA_TYPES.get(cover_path.suffix.lower(), "image/jpeg")
+        cover_meta = '    <meta name="cover" content="cover-image"/>\n'
+        cover_manifest = (
+            f'    <item id="cover-image" href="images/{cover_path.name}" media-type="{media_type}"/>\n'
+            f'    <item id="cover-page" href="text/cover-page.xhtml" media-type="application/xhtml+xml"/>\n'
+        )
+        cover_spine = '    <itemref idref="cover-page"/>\n'
+
     opf = f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
     <dc:title>{BOOK_TITLE}</dc:title>
     <dc:creator>{BOOK_CREATOR}</dc:creator>
-    <dc:contributor>{BOOK_CONTRIBUTOR}</dc:contributor>
-    <dc:date>{datetime.now().strftime('%Y-%m-%d')}</dc:date>
+    <dc:date>{BOOK_YEAR}</dc:date>
+    <dc:publisher>{BOOK_PUBLISHER}</dc:publisher>
     <dc:language>{language}</dc:language>
-    <dc:identifier id="uuid_id">war-with-saints-{datetime.now().strftime('%Y%m%d%H%M%S')}</dc:identifier>
+    <dc:identifier id="uuid_id">war-with-saints-{BOOK_YEAR}</dc:identifier>
     <dc:description>{BOOK_DESCRIPTION}</dc:description>
     <dc:rights>Public Domain</dc:rights>
-  </metadata>
+{cover_meta}  </metadata>
   <manifest>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtb+xml"/>
     <item id="css" href="css/style.css" media-type="text/css"/>
-{extra_manifest}{manifest}  </manifest>
+{cover_manifest}{extra_manifest}{manifest}  </manifest>
   <spine toc="ncx">
-{extra_spine}{spine}  </spine>
+{cover_spine}{extra_spine}{spine}  </spine>
 </package>"""
     (BUILD_DIR / "OEBPS" / "content.opf").write_text(opf, encoding="utf-8")
 
@@ -357,7 +406,9 @@ def write_mimetype() -> None:
     (BUILD_DIR / "mimetype").write_text("application/epub+zip", encoding="utf-8")
 
 
-def package_epub(book_items: list[BookItem], toc_page_id: str) -> None:
+def package_epub(
+    book_items: list[BookItem], toc_page_id: str, cover_path: Path | None = None
+) -> None:
     with zipfile.ZipFile(EPUB_OUTPUT, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(BUILD_DIR / "mimetype", "mimetype", zipfile.ZIP_STORED)
         archive.write(
@@ -366,6 +417,15 @@ def package_epub(book_items: list[BookItem], toc_page_id: str) -> None:
         archive.write(BUILD_DIR / "OEBPS" / "content.opf", "OEBPS/content.opf")
         archive.write(BUILD_DIR / "OEBPS" / "toc.ncx", "OEBPS/toc.ncx")
         archive.write(BUILD_DIR / "OEBPS" / "css" / "style.css", "OEBPS/css/style.css")
+        if cover_path is not None:
+            archive.write(
+                BUILD_DIR / "OEBPS" / "images" / cover_path.name,
+                f"OEBPS/images/{cover_path.name}",
+            )
+            archive.write(
+                BUILD_DIR / "OEBPS" / "text" / "cover-page.xhtml",
+                "OEBPS/text/cover-page.xhtml",
+            )
         archive.write(
             BUILD_DIR / "OEBPS" / "text" / f"{toc_page_id}.xhtml",
             f"OEBPS/text/{toc_page_id}.xhtml",
