@@ -57,6 +57,59 @@ def parse_table_rows(block_lines: list[str]):
 def chapter_blocks(content: str) -> list[dict]:
     lines = [clean_line(line) for line in content.split("\n")]
 
+    def strip_trailing_subheading_period(text: str) -> str:
+        stripped = clean_paragraph(text)
+        stripped = re.sub(r"\.(?=(?:[\"'»”’)]*)\s*$)", "", stripped)
+        return stripped.strip()
+
+    def is_period_terminated_heading_candidate(text: str, line_count: int) -> bool:
+        stripped = text.strip()
+        if not stripped.endswith("."):
+            return False
+
+        words = [word for word in re.split(r"\s+", stripped.rstrip(".")) if word]
+        if len(words) < 2 or len(words) > 14:
+            return False
+        if re.search(r"[;:!?…\)]", stripped):
+            return False
+        if re.search(r"\d{4,}|https?://|www\.", stripped, flags=re.IGNORECASE):
+            return False
+
+        first_word = words[0].lstrip('"«(“”')
+        if not first_word:
+            return False
+        if not re.match(r"^[A-ZА-ЯЁ]", first_word):
+            return False
+
+        if line_count == 1 and not any(ch in stripped for ch in [",", "«", "»", '"']):
+            if len(words) > 7:
+                return False
+
+        if line_count > 3:
+            return False
+
+        return True
+
+    def is_subheading_candidate(text: str, line_count: int) -> bool:
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if len(stripped) >= MINOR_SUBHEADING_MAX_LEN:
+            return False
+        if is_chapter_heading(stripped):
+            return False
+
+        ends_with_strong_terminal_punct = bool(
+            re.search(r"[!?…:»\"'\u201d\u2019]$", stripped)
+        )
+        if ends_with_strong_terminal_punct:
+            return False
+
+        if stripped.endswith("."):
+            return is_period_terminated_heading_candidate(stripped, line_count)
+
+        return line_count <= 3
+
     def should_merge_soft_break(prev_line: str, next_line: str) -> bool:
         prev = prev_line.strip()
         nxt = next_line.strip()
@@ -85,17 +138,14 @@ def chapter_blocks(content: str) -> list[dict]:
             blocks.append({"type": "table", "rows": rows})
             return
 
-        if len(non_empty) == 1:
-            one = clean_paragraph(non_empty[0])
-            if (
-                one
-                and len(one) < MINOR_SUBHEADING_MAX_LEN
-                and not re.search(r"[.!?…:»\"'\u201d\u2019]$", one)
-            ):
-                if is_minor_subheading(one):
-                    blocks.append({"type": "h3_small", "text": one})
+        if 1 <= len(non_empty) <= 3:
+            candidate = clean_paragraph(" ".join(non_empty))
+            if is_subheading_candidate(candidate, len(non_empty)):
+                cleaned_heading = strip_trailing_subheading_period(candidate)
+                if is_minor_subheading(cleaned_heading):
+                    blocks.append({"type": "h3_small", "text": cleaned_heading})
                 else:
-                    blocks.append({"type": "h2", "text": one})
+                    blocks.append({"type": "h2", "text": cleaned_heading})
                 return
 
         paragraph = clean_paragraph(" ".join(non_empty))

@@ -17,6 +17,17 @@ from .noise import (
 )
 
 
+def _strip_toc_leader_artifacts(title: str) -> str:
+    cleaned = normalize_title(title)
+    cleaned = re.sub(r"\s*[.․‥…⋯·•]{2,}\s*$", "", cleaned)
+    return cleaned.rstrip()
+
+
+def _toc_title_key(title: str) -> str:
+    cleaned = _strip_toc_leader_artifacts(title).lower()
+    return cleaned.strip(' .,:;!?-—–/\\"')
+
+
 def extract_toc_entries(text: str) -> list[TocEntry]:
     lines = [clean_line(line) for line in text.split("\n")]
     footer_titles = detect_running_footer_titles(
@@ -24,18 +35,19 @@ def extract_toc_entries(text: str) -> list[TocEntry]:
         min_occurrences=FOOTER_MIN_OCCURRENCES,
     )
     lines = [line for line in lines if not is_running_footer_line(line, footer_titles)]
+    toc_separator = r"(?:\s*[.․‥…⋯·•]{2,}\s*|\s{2,})"
     toc_header = re.compile(
         r"^(содержание|оглавление|contents|table of contents)\s*$",
         re.IGNORECASE,
     )
     toc_entry_patterns = [
-        re.compile(r"^(?P<title>.+?)\s*\.{2,}\s*(?P<page>\d{1,4})\s*$"),
+        re.compile(rf"^(?P<title>.+?){toc_separator}(?P<page>\d{{1,4}})\s*$"),
         re.compile(
-            r"^(?P<title>(?:глава|часть|раздел)\s+[0-9ivxlcdm].*?)\s{2,}(?P<page>\d{1,4})\s*$",
+            rf"^(?P<title>(?:глава|часть|раздел)\s+[0-9ivxlcdm].*?){toc_separator}(?P<page>\d{{1,4}})\s*$",
             re.IGNORECASE,
         ),
         re.compile(
-            r"^(?P<title>(?:chapter|part|section)\s+[0-9ivxlcdm].*?)\s{2,}(?P<page>\d{1,4})\s*$",
+            rf"^(?P<title>(?:chapter|part|section)\s+[0-9ivxlcdm].*?){toc_separator}(?P<page>\d{{1,4}})\s*$",
             re.IGNORECASE,
         ),
     ]
@@ -67,7 +79,7 @@ def extract_toc_entries(text: str) -> list[TocEntry]:
                 break
             continue
 
-        title = normalize_title(matched.group("title"))
+        title = _strip_toc_leader_artifacts(matched.group("title"))
         page = matched.group("page")
         key = title.lower()
         if key in seen or len(title) < 4:
@@ -83,12 +95,12 @@ def resolve_title_with_toc(
     raw_title: str, toc_entries: list[TocEntry], used_indices: set[int]
 ) -> str:
     normalized = normalize_title(raw_title)
-    lowered = normalized.lower()
+    lowered = _toc_title_key(normalized)
 
     for idx, item in enumerate(toc_entries):
         if idx in used_indices:
             continue
-        toc_title = item.title.lower()
+        toc_title = _toc_title_key(item.title)
         if (
             lowered == toc_title
             or lowered.startswith(toc_title)
@@ -201,7 +213,13 @@ def _is_subtitle_candidate(line: str) -> bool:
         return False
     if is_chapter_heading(stripped):
         return False
+    if stripped.endswith((".", ",", ";", ":", "?", "!", "…", ")")):
+        return False
+    if re.search(r"[,;:()]", stripped):
+        return False
     if re.search(r"\d{4,}", stripped):
+        return False
+    if len(stripped.split()) > 8:
         return False
     return bool(re.search(r"[A-Za-zА-Яа-яЁё]", stripped))
 
@@ -215,14 +233,14 @@ def _is_toc_title_heading_candidate(
     if not stripped:
         return False
 
-    normalized = normalize_title(stripped).lower()
+    normalized = _toc_title_key(stripped)
     if normalized not in toc_titles_exact:
         return False
     if is_chapter_heading(stripped):
         return False
 
     if next_non_empty_line:
-        next_normalized = normalize_title(next_non_empty_line).lower()
+        next_normalized = _toc_title_key(next_non_empty_line)
         if next_normalized in toc_titles_exact or is_chapter_heading(
             next_non_empty_line
         ):
@@ -328,6 +346,28 @@ def _is_numbered_heading_title_candidate(line: str) -> bool:
         return False
     if re.search(r"https?://|www\.", stripped, flags=re.IGNORECASE):
         return False
+    return True
+
+
+def _is_explicit_chapter_start_candidate(lines: list[str], index: int) -> bool:
+    stripped = lines[index].strip()
+    if not stripped or not is_chapter_heading(stripped):
+        return False
+
+    prev_line = lines[index - 1].strip() if index > 0 else ""
+    next_line = lines[index + 1].strip() if index + 1 < len(lines) else ""
+    has_blank_before = index == 0 or not prev_line
+    has_blank_after = index + 1 >= len(lines) or not next_line
+
+    if not (has_blank_before or has_blank_after):
+        return False
+
+    if stripped.endswith((",", ";", ":")):
+        return False
+
+    if not has_blank_before and re.search(r"[A-Za-zА-Яа-яЁё0-9,;:(]$", prev_line):
+        return False
+
     return True
 
 
@@ -451,7 +491,8 @@ def _handle_explicit_chapter_heading_branch(
     toc_entries: list[TocEntry],
     used_toc_indices: set[int],
 ) -> tuple[bool, int, str | None, list[str]]:
-    if not is_chapter_heading(stripped):
+    current_index = i - 1
+    if not _is_explicit_chapter_start_candidate(lines, current_index):
         return False, i, current_title, current_content
     if _is_probable_toc_chapter_line(lines, i - 1):
         return True, i, current_title, current_content
@@ -509,7 +550,7 @@ def _prepare_chapter_detection_context(text: str, toc_entries: list[TocEntry]) -
         bool(explicit_numbers) and 1 not in explicit_numbers
     )
 
-    toc_titles_exact = {normalize_title(item.title).lower() for item in toc_entries}
+    toc_titles_exact = {_toc_title_key(item.title) for item in toc_entries}
 
     return {
         "lines": lines,
