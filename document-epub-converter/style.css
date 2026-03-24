@@ -118,20 +118,8 @@ th {
 }
 
 .toc-list li {
-  display: flex;
-  justify-content: space-between;
-  gap: 1em;
   border-bottom: 1px dotted #d3d3d3;
   padding: 0.25em 0;
-}
-
-.toc-title {
-  flex: 1;
-}
-
-.toc-page {
-  min-width: 2.5em;
-  text-align: right;
 }
 
 em,

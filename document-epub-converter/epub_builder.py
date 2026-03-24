@@ -121,10 +121,7 @@ def build_toc_page(
             title_html = f'<a href="{target}">{escape_xml(entry.title)}</a>'
         else:
             title_html = escape_xml(entry.title)
-        page = escape_xml(entry.page)
-        toc_rows.append(
-            f'    <li><span class="toc-title">{title_html}</span><span class="toc-page">{page}</span></li>'
-        )
+        toc_rows.append(f'    <li><span class="toc-title">{title_html}</span></li>')
 
     title_text = "Оглавление" if language == "ru" else "Contents"
     toc_xhtml = f"""<?xml version="1.0" encoding="UTF-8"?>
