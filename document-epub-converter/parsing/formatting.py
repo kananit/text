@@ -28,6 +28,7 @@ _LIST_ITEM_COMPLETE_TERMINAL_RE = re.compile(r"[.!?…]$")
 _HAS_DIGIT_RE = re.compile(r"\d")
 _FIRST_NUMBER_RE = re.compile(r"\d+")
 _ALPHA_PAREN_MARKER_RE = re.compile(r"\([A-Za-zА-Яа-яЁё]\)")
+_INLINE_NUMERIC_MARKER_RE = re.compile(r"(?<!\S)\d{1,3}[\.)]\s+")
 
 
 @dataclass
@@ -223,6 +224,10 @@ def chapter_blocks(content: str) -> list[dict]:
     def is_standalone_numeric_marker(marker: str, rest: str) -> bool:
         """Numeric markers like (2), 2. require rest to start uppercase.
         Prevents inline enumerations 'text, (2) continue...' from being list items."""
+        if re.match(r"^\(\d{1,3}\)$", marker):
+            return False
+        if re.match(r"^\d+\.$", marker):
+            return bool(rest.strip())
         if _HAS_DIGIT_RE.search(marker):
             return bool(_LIST_TEXT_UPPER_START_RE.match(rest))
         return True
@@ -317,56 +322,76 @@ def chapter_blocks(content: str) -> list[dict]:
         return heading_text, tail_lines
 
     def build_list_block(block_lines: list[str]) -> dict | None:
+        def expand_inline_numeric_markers(line: str) -> list[str]:
+            normalized = clean_paragraph(line)
+            if not normalized:
+                return []
+
+            matches = list(_INLINE_NUMERIC_MARKER_RE.finditer(normalized))
+            if len(matches) < 2 or matches[0].start() != 0:
+                return [normalized]
+
+            parts: list[str] = []
+            for index, match in enumerate(matches):
+                start = match.start()
+                end = (
+                    matches[index + 1].start()
+                    if index + 1 < len(matches)
+                    else len(normalized)
+                )
+                chunk = clean_paragraph(normalized[start:end])
+                if chunk:
+                    parts.append(chunk)
+
+            return parts or [normalized]
+
         items: list[dict[str, str]] = []
         state = ListParsingState()
 
         for raw_line in block_lines:
-            normalized = clean_paragraph(raw_line)
-            if not normalized:
-                continue
+            for normalized in expand_inline_numeric_markers(raw_line):
+                marker_match = match_list_marker(
+                    normalized,
+                    require_standalone_numeric=True,
+                )
+                if marker_match:
+                    marker = marker_match.group("marker")
+                    rest = marker_match.group("rest")
 
-            marker_match = match_list_marker(
-                normalized,
-                require_standalone_numeric=True,
-            )
-            if marker_match:
-                marker = marker_match.group("marker")
-                rest = marker_match.group("rest")
+                    current_kind = marker_kind(marker)
+                    if (
+                        state.current_item
+                        and state.list_kind == "ordered"
+                        and current_kind == "alpha"
+                        and marker.startswith("(")
+                        and _ALPHA_PAREN_MARKER_RE.search(state.current_item["text"])
+                    ):
+                        state.current_item["text"] = (
+                            f"{state.current_item['text']} {marker} {rest}"
+                        )
+                        continue
 
-                current_kind = marker_kind(marker)
-                if (
-                    state.current_item
-                    and state.list_kind == "ordered"
-                    and current_kind == "alpha"
-                    and marker.startswith("(")
-                    and _ALPHA_PAREN_MARKER_RE.search(state.current_item["text"])
-                ):
-                    state.current_item["text"] = (
-                        f"{state.current_item['text']} {marker} {rest}"
-                    )
+                    if state.current_item:
+                        items.append(state.current_item)
+                    state.current_item = {"marker": marker, "text": rest}
+
+                    if state.list_kind is None:
+                        state.list_kind = current_kind
+                        if current_kind == "ordered":
+                            state.list_start = extract_marker_start_number(marker)
+                    elif current_kind != state.list_kind:
+                        state.list_kind = "mixed"
+
+                    state.marker_count += 1
                     continue
 
                 if state.current_item:
-                    items.append(state.current_item)
-                state.current_item = {"marker": marker, "text": rest}
-
-                if state.list_kind is None:
-                    state.list_kind = current_kind
-                    if current_kind == "ordered":
-                        state.list_start = extract_marker_start_number(marker)
-                elif current_kind != state.list_kind:
-                    state.list_kind = "mixed"
-
-                state.marker_count += 1
-                continue
-
-            if state.current_item:
-                state.current_item["text"] = (
-                    f"{state.current_item['text']} {normalized}"
-                )
-                state.has_non_marker_continuation = True
-            else:
-                return None
+                    state.current_item["text"] = (
+                        f"{state.current_item['text']} {normalized}"
+                    )
+                    state.has_non_marker_continuation = True
+                else:
+                    return None
 
         if state.current_item:
             items.append(state.current_item)
@@ -626,7 +651,11 @@ def chapter_blocks(content: str) -> list[dict]:
             return False
 
         prefix_lines, list_block = prefix_and_list
-        blocks.append({"type": "p", "text": clean_paragraph(" ".join(prefix_lines))})
+        prefix_text = clean_paragraph(" ".join(prefix_lines))
+        if len(prefix_lines) == 1 and is_subheading_candidate(prefix_text, 1):
+            blocks.append(build_heading_block(prefix_text))
+        else:
+            blocks.append({"type": "p", "text": prefix_text})
         blocks.append(list_block)
         return True
 

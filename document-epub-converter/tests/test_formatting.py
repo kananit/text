@@ -4,6 +4,31 @@ from parsing.formatting import chapter_blocks
 
 
 class ChapterBlocksRegressionTests(unittest.TestCase):
+    def test_heading_with_lowercase_numbered_items_forms_list(self) -> None:
+        text = (
+            "Неправильное толкование\n"
+            "1. оставляет человека безгрешным\n"
+            "2. Человек не должен ни говорить, ни"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h2", "list"])
+        self.assertTrue(blocks[1]["ordered"])
+        self.assertEqual([item["marker"] for item in blocks[1]["items"]], ["1.", "2."])
+
+    def test_heading_with_inline_second_numbered_item_forms_list(self) -> None:
+        text = (
+            "Неправильное толкование\n"
+            "1. оставляет человека безгрешным 2. Человек не должен ни говорить, ни"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h2", "list"])
+        self.assertEqual([item["marker"] for item in blocks[1]["items"]], ["1.", "2."])
+        self.assertTrue(blocks[1]["items"][0]["text"].startswith("оставляет"))
+
     def test_inline_numeric_enumeration_after_to_est_stays_paragraph(self) -> None:
         text = (
             "защиты. Иногда их доверие покрывает неправильное\n"
@@ -20,7 +45,7 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         self.assertEqual(blocks[0]["type"], "p")
         self.assertIn("тайную самоуверенность", blocks[0]["text"])
 
-    def test_numbered_demon_items_remain_list_with_continuation_text(self) -> None:
+    def test_parenthesized_numbered_demon_items_stay_paragraphs(self) -> None:
         text = (
             "(1) Проявление силы демона.\n"
             "Дела демонов всегда становятся более заметны вниманию.\n"
@@ -33,11 +58,10 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
 
         blocks = chapter_blocks(text)
 
-        self.assertEqual([block["type"] for block in blocks], ["list", "list"])
-        self.assertEqual(blocks[0]["start"], 1)
-        self.assertEqual(len(blocks[0]["items"]), 2)
-        self.assertIn("Демонов бывает множество", blocks[0]["items"][1]["text"])
-        self.assertEqual(blocks[1]["start"], 3)
+        self.assertEqual([block["type"] for block in blocks], ["p", "p"])
+        self.assertIn("(1) Проявление силы демона", blocks[0]["text"])
+        self.assertIn("(2) Различные виды демонов", blocks[0]["text"])
+        self.assertIn("(3) Как демоны сосредотачиваются в людях", blocks[1]["text"])
 
     def test_question_headings_become_h2(self) -> None:
         text = (
