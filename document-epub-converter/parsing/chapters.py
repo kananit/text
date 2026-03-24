@@ -12,6 +12,7 @@ from .cleaning import (
 )
 from .noise import (
     detect_running_footer_titles,
+    detect_probable_page_number_line_indices,
     detect_repeated_noise_lines,
     is_running_footer_line,
 )
@@ -34,7 +35,13 @@ def extract_toc_entries(text: str) -> list[TocEntry]:
         lines,
         min_occurrences=FOOTER_MIN_OCCURRENCES,
     )
-    lines = [line for line in lines if not is_running_footer_line(line, footer_titles)]
+    page_number_indices = detect_probable_page_number_line_indices(lines)
+    lines = [
+        line
+        for index, line in enumerate(lines)
+        if index not in page_number_indices
+        and not is_running_footer_line(line, footer_titles)
+    ]
     toc_separator = r"(?:\s*[.․‥…⋯·•]{2,}\s*|\s{2,})"
     toc_header = re.compile(
         r"^(содержание|оглавление|contents|table of contents)\s*$",
@@ -534,11 +541,17 @@ def _prepare_chapter_detection_context(text: str, toc_entries: list[TocEntry]) -
         lines,
         min_occurrences=FOOTER_MIN_OCCURRENCES,
     )
+    page_number_indices = detect_probable_page_number_line_indices(lines)
     repeated_noise_lines = detect_repeated_noise_lines(
         lines,
         min_occurrences=FOOTER_MIN_OCCURRENCES,
     )
-    lines = [line for line in lines if not is_running_footer_line(line, footer_titles)]
+    lines = [
+        line
+        for index, line in enumerate(lines)
+        if index not in page_number_indices
+        and not is_running_footer_line(line, footer_titles)
+    ]
     lines = [
         line
         for line in lines
@@ -555,6 +568,7 @@ def _prepare_chapter_detection_context(text: str, toc_entries: list[TocEntry]) -
     return {
         "lines": lines,
         "footer_titles": footer_titles,
+        "page_number_indices": page_number_indices,
         "repeated_noise_lines": repeated_noise_lines,
         "enable_number_plus_title_detection": enable_number_plus_title_detection,
         "toc_titles_exact": toc_titles_exact,

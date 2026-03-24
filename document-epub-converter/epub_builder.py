@@ -28,6 +28,25 @@ def render_blocks_to_xhtml(blocks: list[dict]) -> str:
     for block in blocks:
         if block["type"] == "p":
             chunks.append(f"    <p>{escape_xml(block['text'])}</p>")
+        elif block["type"] == "p_italic":
+            chunks.append(f"    <p><em>{escape_xml(block['text'])}</em></p>")
+        elif block["type"] == "list":
+            tag = "ol" if block.get("ordered") else "ul"
+            if (
+                tag == "ol"
+                and isinstance(block.get("start"), int)
+                and block["start"] > 1
+            ):
+                chunks.append(f"    <{tag} start=\"{block['start']}\">")
+            else:
+                chunks.append(f"    <{tag}>")
+            for item in block["items"]:
+                if block.get("show_markers"):
+                    item_text = f"{item['marker']} {item['text']}"
+                else:
+                    item_text = item["text"]
+                chunks.append(f"      <li>{escape_xml(item_text)}</li>")
+            chunks.append(f"    </{tag}>")
         elif block["type"] == "h2":
             chunks.append(
                 f"    <h3 class=\"subheading\">{escape_xml(block['text'])}</h3>"
