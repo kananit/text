@@ -29,6 +29,10 @@ _HAS_DIGIT_RE = re.compile(r"\d")
 _FIRST_NUMBER_RE = re.compile(r"\d+")
 _ALPHA_PAREN_MARKER_RE = re.compile(r"\([A-Za-zА-Яа-яЁё]\)")
 _INLINE_NUMERIC_MARKER_RE = re.compile(r"(?<!\S)\d{1,3}[\.)]\s+")
+_STANDALONE_PAGE_NUMBER_RE = re.compile(r"^\d{1,4}$")
+_OCR_ONE_MARKER_RE = re.compile(
+    r"^(?P<alias>[Il|])\s*(?P<punct>[\.)])\s*(?P<rest>\S.*)$"
+)
 
 
 @dataclass
@@ -232,11 +236,29 @@ def chapter_blocks(content: str) -> list[dict]:
             return bool(_LIST_TEXT_UPPER_START_RE.match(rest))
         return True
 
+    def normalize_leading_numeric_marker_spacing(text: str) -> str:
+        """Normalize malformed numeric markers like '1 .Text' -> '1. Text'."""
+        match = re.match(r"^(?P<num>\d{1,3})\s*(?P<punct>[.)])\s*(?P<rest>\S.*)$", text)
+        if not match:
+            return text
+        return f"{match.group('num')}{match.group('punct')} {match.group('rest')}"
+
+    def normalize_leading_ocr_one_marker(text: str) -> str:
+        """Normalize OCR-like leading markers such as 'I. text' or 'l. text' to '1. text'."""
+        match = _OCR_ONE_MARKER_RE.match(text)
+        if not match:
+            return text
+        return f"1{match.group('punct')} {match.group('rest')}"
+
     def match_list_marker(
         text: str,
         require_standalone_numeric: bool = False,
+        allow_ocr_numeric_aliases: bool = False,
     ):
-        marker_match = _LIST_MARKER_RE.match(text)
+        normalized_text = normalize_leading_numeric_marker_spacing(text)
+        if allow_ocr_numeric_aliases:
+            normalized_text = normalize_leading_ocr_one_marker(normalized_text)
+        marker_match = _LIST_MARKER_RE.match(normalized_text)
         if not marker_match:
             return None
         if require_standalone_numeric and not is_standalone_numeric_marker(
@@ -322,6 +344,46 @@ def chapter_blocks(content: str) -> list[dict]:
         return heading_text, tail_lines
 
     def build_list_block(block_lines: list[str]) -> dict | None:
+        def restore_broken_numbered_list(
+            items: list[dict[str, str]],
+        ) -> tuple[list[dict[str, str]], int] | None:
+            if len(items) < 2:
+                return None
+
+            marker_numbers = [
+                extract_marker_start_number(item["marker"]) for item in items
+            ]
+            if any(number is None for number in marker_numbers):
+                return None
+
+            numbers = [number for number in marker_numbers if number is not None]
+            if not numbers:
+                return None
+            if any(curr < prev for prev, curr in zip(numbers, numbers[1:])):
+                return None
+
+            break_count = sum(
+                1 for prev, curr in zip(numbers, numbers[1:]) if curr != prev + 1
+            )
+            if break_count == 0:
+                return items, numbers[0]
+
+            if len(items) < 3:
+                return None
+
+            max_breaks = max(1, len(items) // 6)
+            if break_count > max_breaks:
+                return None
+
+            repaired_items: list[dict[str, str]] = []
+            start_number = numbers[0]
+            for offset, item in enumerate(items):
+                repaired_item = dict(item)
+                repaired_item["marker"] = f"{start_number + offset}."
+                repaired_items.append(repaired_item)
+
+            return repaired_items, start_number
+
         def expand_inline_numeric_markers(line: str) -> list[str]:
             normalized = clean_paragraph(line)
             if not normalized:
@@ -345,14 +407,56 @@ def chapter_blocks(content: str) -> list[dict]:
 
             return parts or [normalized]
 
+        def split_embedded_next_ordered_marker(
+            text: str,
+            expected_number: int | None,
+        ) -> list[str]:
+            normalized = clean_paragraph(text)
+            if not normalized or expected_number is None:
+                return [normalized] if normalized else []
+
+            marker_pattern = rf"(?P<prefix>.+?[.!?…])\s+(?P<marker>{expected_number}[\.)])\s*(?P<rest>\S.*)$"
+            match = re.match(marker_pattern, normalized)
+            if not match:
+                return [normalized]
+
+            prefix = clean_paragraph(match.group("prefix"))
+            marker_line = normalize_leading_numeric_marker_spacing(
+                f"{match.group('marker')} {match.group('rest')}"
+            )
+            result = []
+            if prefix:
+                result.append(prefix)
+            if marker_line:
+                result.extend(expand_inline_numeric_markers(marker_line))
+            return result or [normalized]
+
         items: list[dict[str, str]] = []
         state = ListParsingState()
 
         for raw_line in block_lines:
-            for normalized in expand_inline_numeric_markers(raw_line):
+            expanded_segments = expand_inline_numeric_markers(raw_line)
+            processed_segments: list[str] = []
+            for segment in expanded_segments:
+                expected_next_number = None
+                if state.current_item and state.list_kind == "ordered":
+                    current_number = extract_marker_start_number(
+                        state.current_item["marker"]
+                    )
+                    if current_number is not None:
+                        expected_next_number = current_number + 1
+                processed_segments.extend(
+                    split_embedded_next_ordered_marker(segment, expected_next_number)
+                )
+
+            for normalized in processed_segments:
+                if state.current_item and _STANDALONE_PAGE_NUMBER_RE.match(normalized):
+                    continue
+
                 marker_match = match_list_marker(
                     normalized,
                     require_standalone_numeric=True,
+                    allow_ocr_numeric_aliases=True,
                 )
                 if marker_match:
                     marker = marker_match.group("marker")
@@ -396,14 +500,14 @@ def chapter_blocks(content: str) -> list[dict]:
         if state.current_item:
             items.append(state.current_item)
 
-        if state.marker_count < 2:
-            allow_single_ordered_item = (
-                state.marker_count == 1
-                and state.list_kind == "ordered"
-                and state.has_non_marker_continuation
-            )
-            if not allow_single_ordered_item:
+        if state.list_kind == "ordered":
+            restored_numbered_list = restore_broken_numbered_list(items)
+            if not restored_numbered_list:
                 return None
+            items, state.list_start = restored_numbered_list
+
+        if state.marker_count < 2:
+            return None
 
         result = {
             "type": "list",
@@ -457,8 +561,30 @@ def chapter_blocks(content: str) -> list[dict]:
             marker_match = match_list_marker(
                 normalized,
                 require_standalone_numeric=True,
+                allow_ocr_numeric_aliases=True,
             )
             if marker_match:
+                if (
+                    state.marker_count >= 2
+                    and state.is_numbered_list
+                    and state.current_marker
+                ):
+                    current_number_match = _FIRST_NUMBER_RE.search(state.current_marker)
+                    next_number_match = _FIRST_NUMBER_RE.search(
+                        marker_match.group("marker")
+                    )
+                    if current_number_match and next_number_match:
+                        current_number = int(current_number_match.group(0))
+                        next_number = int(next_number_match.group(0))
+                        if next_number != current_number + 1:
+                            list_lines = block_lines[:index]
+                            tail_lines = [
+                                line for line in block_lines[index:] if line.strip()
+                            ]
+                            list_block = build_list_block(list_lines)
+                            if list_block and tail_lines:
+                                return list_block, tail_lines
+
                 state.marker_count += 1
                 state.current_marker = marker_match.group("marker")
                 state.current_item_text = marker_match.group("rest")
@@ -507,7 +633,10 @@ def chapter_blocks(content: str) -> list[dict]:
                             list_block = build_list_block(list_lines)
                             if list_block and tail_lines:
                                 return list_block, tail_lines
-                        # Otherwise continue merging text, don't split
+                        list_lines = block_lines[:index]
+                        list_block = build_list_block(list_lines)
+                        if list_block and tail_lines:
+                            return list_block, tail_lines
                         continue
                     else:
                         list_lines = block_lines[:index]
@@ -570,6 +699,24 @@ def chapter_blocks(content: str) -> list[dict]:
             return True
         return False
 
+    def try_emit_chapter_heading_with_paragraph_tail(non_empty: list[str]) -> bool:
+        if len(non_empty) < 2:
+            return False
+
+        heading_candidate = clean_paragraph(non_empty[0])
+        if not is_chapter_heading(heading_candidate):
+            return False
+
+        tail_lines = [clean_paragraph(line) for line in non_empty[1:] if line.strip()]
+        if not tail_lines:
+            return False
+        if match_list_marker(tail_lines[0]):
+            return False
+
+        blocks.append({"type": "h2", "text": heading_candidate})
+        blocks.append({"type": "p", "text": clean_paragraph(" ".join(tail_lines))})
+        return True
+
     def try_emit_numbered_subheading_with_tail(non_empty: list[str]) -> bool:
         numbered_subheading_with_tail = extract_numbered_subheading_with_tail(non_empty)
         if not numbered_subheading_with_tail:
@@ -631,7 +778,10 @@ def chapter_blocks(content: str) -> list[dict]:
             return False
         heading_candidate = clean_paragraph(non_empty[0])
         tail_lines = non_empty[1:]
-        if not match_list_marker(clean_paragraph(tail_lines[0])):
+        if not match_list_marker(
+            clean_paragraph(tail_lines[0]),
+            allow_ocr_numeric_aliases=True,
+        ):
             return False
         if not is_subheading_candidate(heading_candidate, 1):
             return False
@@ -640,6 +790,19 @@ def chapter_blocks(content: str) -> list[dict]:
         list_block = build_list_block(tail_lines)
         if list_block:
             blocks.append(list_block)
+            return True
+
+        list_and_tail = split_list_and_tail(tail_lines)
+        if list_and_tail:
+            split_list_block, remaining_tail_lines = list_and_tail
+            blocks.append(split_list_block)
+            if remaining_tail_lines:
+                blocks.append(
+                    {
+                        "type": "p",
+                        "text": clean_paragraph(" ".join(remaining_tail_lines)),
+                    }
+                )
             return True
 
         blocks.append({"type": "p", "text": clean_paragraph(" ".join(tail_lines))})
@@ -755,6 +918,10 @@ def chapter_blocks(content: str) -> list[dict]:
         BlockRule(
             "heading-dot-paragraph-tail", try_emit_heading_dot_with_paragraph_tail
         ),
+        BlockRule(
+            "chapter-heading-paragraph-tail",
+            try_emit_chapter_heading_with_paragraph_tail,
+        ),
         BlockRule("numbered-subheading-tail", try_emit_numbered_subheading_with_tail),
         BlockRule("three-line-heading", try_emit_three_line_heading),
         BlockRule(
@@ -768,7 +935,6 @@ def chapter_blocks(content: str) -> list[dict]:
         BlockRule("prefix-and-list", try_emit_prefix_and_list),
         BlockRule("split-list-and-tail", try_emit_split_list_and_tail),
         BlockRule("list-block", try_emit_list_block),
-        BlockRule("single-numeric-marker-list", try_emit_single_numeric_marker_list),
         BlockRule("short-subheading", try_emit_short_subheading),
     )
 

@@ -4,6 +4,24 @@ from parsing.formatting import chapter_blocks
 
 
 class ChapterBlocksRegressionTests(unittest.TestCase):
+    def test_chapter_heading_with_immediate_paragraph_tail(self) -> None:
+        text = (
+            "Глава 10. Победа в конфликте.\n"
+            "В предыдущей главе мы рассмотрели путь избавления\n"
+            "от одержимости злыми духами. Но главный вопрос теперь:\n"
+            '"как быть победителем над силами тьмы в целом"? Как же'
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h2", "p"])
+        self.assertEqual(blocks[0]["text"], "Глава 10. Победа в конфликте.")
+        self.assertTrue(
+            blocks[1]["text"].startswith(
+                "В предыдущей главе мы рассмотрели путь избавления"
+            )
+        )
+
     def test_heading_with_lowercase_numbered_items_forms_list(self) -> None:
         text = (
             "Неправильное толкование\n"
@@ -28,6 +46,154 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         self.assertEqual([block["type"] for block in blocks], ["h2", "list"])
         self.assertEqual([item["marker"] for item in blocks[1]["items"]], ["1.", "2."])
         self.assertTrue(blocks[1]["items"][0]["text"].startswith("оставляет"))
+
+    def test_malformed_numeric_marker_spacing_is_normalized(self) -> None:
+        text = (
+            "Оправдания.\n"
+            "Или причины, внушенные лживыми духами,\n"
+            "чтобы скрыть их дела.\n"
+            "1 .Обнаружение оправданий, произведенных\n"
+            "2 .Продолжение описания\n"
+            "3 .Завершение"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertIn("list", [block["type"] for block in blocks])
+        list_block = next(block for block in blocks if block["type"] == "list")
+        self.assertEqual(
+            [item["marker"] for item in list_block["items"]], ["1.", "2.", "3."]
+        )
+
+    def test_ocr_upper_i_marker_is_normalized_to_one(self) -> None:
+        text = "Подделка\nI. Первый пункт\n2. Второй пункт"
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h2", "list"])
+        self.assertEqual([item["marker"] for item in blocks[1]["items"]], ["1.", "2."])
+
+    def test_ocr_lower_l_marker_is_normalized_to_one(self) -> None:
+        text = "Подделка\nl. Первый пункт\n2. Второй пункт"
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h2", "list"])
+        self.assertEqual([item["marker"] for item in blocks[1]["items"]], ["1.", "2."])
+
+    def test_non_sequential_numbered_items_are_not_list(self) -> None:
+        text = "1. Первый\n3. Третий"
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["type"], "p")
+        self.assertIn("1. Первый", blocks[0]["text"])
+        self.assertIn("3. Третий", blocks[0]["text"])
+
+    def test_multiline_numbered_list_with_inline_next_marker_forms_list(self) -> None:
+        text = (
+            "Основание. И как с ним разбираться\n"
+            "1. Устойчивое отвержение основания определенно\n"
+            "пунктов, в чем верующий видит, что он был обманут и их\n"
+            "причину и результаты. 2. Наблюдать, чтобы не предоставить\n"
+            "нового основания.\n"
+            "3. Ощущает и видит кажущиеся ухудшение, но в\n"
+            "действительности это улучшение.\n"
+            "4. Каждый пункт должен быть побежден постоянным\n"
+            "отвержением (Также действием, например восстановленного\n"
+            "разума.)"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h2", "list"])
+        list_block = blocks[1]
+        self.assertEqual(
+            [item["marker"] for item in list_block["items"]], ["1.", "2.", "3.", "4."]
+        )
+        self.assertIn("причину и результаты.", list_block["items"][0]["text"])
+        self.assertTrue(list_block["items"][1]["text"].startswith("Наблюдать"))
+
+    def test_continued_numbered_list_ignores_page_number_line(self) -> None:
+        text = (
+            '4. Я отвергаю "управление" злыми духами\n'
+            '5. Я отвергаю "повиновение" злым духам\n'
+            '6. Я отвергаю "молиться" злым духам\n'
+            '7. Я отвергаю "вопрошать" что-нибудь у злых духов.\n'
+            "207\n"
+            '8. Я отвергаю "сдаваться" злым духам.\n'
+            '9. Я отвергаю все "знание" от злых духов.\n'
+            "10. Я отвергаю слушать злых духов.\n"
+            '11. Я отвергаю "видения" от злых духов.\n'
+            '12. Я отвергаю "контакты" со злыми духам'
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list"])
+        self.assertEqual(blocks[0]["start"], 4)
+        self.assertEqual(
+            [item["marker"] for item in blocks[0]["items"]],
+            ["4.", "5.", "6.", "7.", "8.", "9.", "10.", "11.", "12."],
+        )
+        self.assertNotIn("207", blocks[0]["items"][3]["text"])
+
+    def test_numbered_list_splits_completed_tail_paragraph(self) -> None:
+        text = (
+            '11. Я отвергаю "видения" от злых духов.\n'
+            '12. Я отвергаю "контакты" со злыми духами.\n'
+            '13. Я отвергаю "сообщения" от злых духов.\n'
+            '14. Я отвергаю всю "помощь" от злых духов.\n'
+            "Верующий должен отменить согласие, которое он\n"
+            "несознательно дал работе обманщиков. Они стремились\n"
+            'работать через него и он теперь объявляет: "я сам желаю\n'
+            "делать свою собственную работу."
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list", "p"])
+        self.assertEqual(blocks[0]["start"], 11)
+        self.assertEqual(
+            [item["marker"] for item in blocks[0]["items"]],
+            ["11.", "12.", "13.", "14."],
+        )
+        self.assertEqual(
+            blocks[0]["items"][-1]["text"], 'Я отвергаю всю "помощь" от злых духов.'
+        )
+        self.assertTrue(
+            blocks[1]["text"].startswith("Верующий должен отменить согласие")
+        )
+
+    def test_heading_plus_numbered_list_recovers_small_numbering_break(self) -> None:
+        text = (
+            "Подделка\n"
+            "1. Первый пункт.\n"
+            "2. Второй пункт.\n"
+            "3. Третий пункт.\n"
+            "5. Сломанный следующий номер.\n"
+            "6. Еще один пункт вне последовательности"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h2", "list"])
+        self.assertEqual(
+            [item["marker"] for item in blocks[1]["items"]],
+            ["1.", "2.", "3.", "4.", "5."],
+        )
+        self.assertTrue(blocks[1]["items"][3]["text"].startswith("Сломанный"))
+
+    def test_short_heavily_broken_numbered_items_stay_paragraph(self) -> None:
+        text = "1. Первый\n3. Третий\n5. Пятый"
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["type"], "p")
+        self.assertIn("1. Первый", blocks[0]["text"])
+        self.assertIn("5. Пятый", blocks[0]["text"])
 
     def test_inline_numeric_enumeration_after_to_est_stays_paragraph(self) -> None:
         text = (

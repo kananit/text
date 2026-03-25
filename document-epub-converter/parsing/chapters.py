@@ -378,6 +378,16 @@ def _is_explicit_chapter_start_candidate(lines: list[str], index: int) -> bool:
     return True
 
 
+def _is_bare_explicit_chapter_heading(line: str) -> bool:
+    stripped = line.strip()
+    patterns = [
+        r"^(?:глава|часть|раздел)\s+[0-9ivxlcdm]+(?:\s*[\.:\-)])?\s*$",
+        r"^(?:chapter|part|section)\s+[0-9ivxlcdm]+(?:\s*[\.:\-)])?\s*$",
+        r"^(?:приложение|appendix)\s+[a-zа-я0-9ivxlcdm]+(?:\s*[\.:\-)])?\s*$",
+    ]
+    return any(re.match(pattern, stripped, re.IGNORECASE) for pattern in patterns)
+
+
 def _extract_explicit_chapter_numbers(lines: list[str]) -> list[int]:
     numbers: list[int] = []
     for line in lines:
@@ -516,7 +526,12 @@ def _handle_explicit_chapter_heading_branch(
 
     combined = stripped
     next_idx, next_line = _next_non_empty_line(lines, i)
-    if next_idx is not None and next_line and _is_subtitle_candidate(next_line):
+    if (
+        _is_bare_explicit_chapter_heading(stripped)
+        and next_idx is not None
+        and next_line
+        and _is_subtitle_candidate(next_line)
+    ):
         combined = f"{stripped}. {next_line}"
         i = next_idx + 1
 
