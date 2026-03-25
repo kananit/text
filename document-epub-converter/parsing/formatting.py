@@ -13,7 +13,7 @@ from .cleaning import clean_line, clean_paragraph, is_chapter_heading
 
 
 _LIST_MARKER_RE = re.compile(
-    r"^(?P<marker>(?:\(\d{1,3}\)|\d{1,3}[\.)]|\([A-Za-zА-Яа-яЁё]\)|[A-Za-zА-Яа-яЁё][\.)]))\s+(?P<rest>.+)$"
+    r"^(?P<marker>(?:\(\d{1,3}\)|\d{1,3}[\.)]|\([A-Za-zА-Яа-яЁё]\)|[A-Za-zА-Яа-яЁё][\.)]|[•●▪◦‣∙·]))\s+(?P<rest>.+)$"
 )
 _URL_OR_LONG_NUMBER_RE = re.compile(r"\d{4,}|https?://|www\.", re.IGNORECASE)
 _UPPERCASE_START_RE = re.compile(r"^[A-ZА-ЯЁ]")
@@ -98,6 +98,7 @@ def parse_table_rows(block_lines: list[str]):
 
 
 def chapter_blocks(content: str) -> list[dict]:
+    bullet_markers = {"•", "●", "▪", "◦", "‣", "∙", "·"}
     lines = [clean_line(line) for line in content.split("\n")]
     italic_lead_prefixes = (
         "извлечения ",
@@ -212,6 +213,8 @@ def chapter_blocks(content: str) -> list[dict]:
         return bool(_LIST_TEXT_UPPER_START_RE.match(stripped))
 
     def marker_kind(marker: str) -> str:
+        if marker in bullet_markers:
+            return "bullet"
         if _HAS_DIGIT_RE.search(marker):
             return "ordered"
         return "alpha"
@@ -512,7 +515,7 @@ def chapter_blocks(content: str) -> list[dict]:
         result = {
             "type": "list",
             "ordered": state.list_kind == "ordered",
-            "show_markers": state.list_kind != "ordered",
+            "show_markers": state.list_kind not in {"ordered", "bullet"},
             "items": items,
         }
         if state.list_kind == "ordered" and state.list_start is not None:
@@ -622,6 +625,12 @@ def chapter_blocks(content: str) -> list[dict]:
                                     f"{state.current_item_text} {normalized}"
                                 )
                                 continue
+
+                    if next_marker_match and not state.is_numbered_list:
+                        state.current_item_text = clean_paragraph(
+                            f"{state.current_item_text} {normalized}"
+                        )
+                        continue
 
                     # For numbered lists, only split if the next line is a new marker
                     # Otherwise keep merging text - don't split the list

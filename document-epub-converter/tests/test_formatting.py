@@ -4,6 +4,36 @@ from parsing.formatting import chapter_blocks
 
 
 class ChapterBlocksRegressionTests(unittest.TestCase):
+    def test_bullet_symbol_lines_form_unordered_list(self) -> None:
+        text = (
+            "• Признавать постоянно истинную причину рабства; то\n"
+            "есть, работу злого духа или духов.\n"
+            "• Выбрать отказ от абсолютно всего, связанного с\n"
+            "силами тьмы. Часто объявляйте это.\n"
+            "• Не говорите или не беспокойтесь об их проявлениях.\n"
+            "Распознавайте, отвергайте и затем игнорируйте их.\n"
+            "• Отвергайте и отклоняйте всю их ложь и отговорки как\n"
+            "только их распознаете.\n"
+            "• Замечайте мысли и путь, по которому они приходят и\n"
+            "сразу объявляйте"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list"])
+        self.assertFalse(blocks[0]["ordered"])
+        self.assertFalse(blocks[0]["show_markers"])
+        self.assertEqual(len(blocks[0]["items"]), 5)
+        self.assertTrue(blocks[0]["items"][2]["text"].startswith("Не говорите"))
+
+    def test_two_bullet_symbol_lines_are_enough_for_list(self) -> None:
+        text = "• Первый пункт\n• Второй пункт"
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list"])
+        self.assertEqual(len(blocks[0]["items"]), 2)
+
     def test_chapter_heading_with_immediate_paragraph_tail(self) -> None:
         text = (
             "Глава 10. Победа в конфликте.\n"
