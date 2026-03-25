@@ -34,6 +34,93 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         self.assertEqual([block["type"] for block in blocks], ["list"])
         self.assertEqual(len(blocks[0]["items"]), 2)
 
+    def test_last_numbered_item_tail_moves_to_paragraphs(self) -> None:
+        text = (
+            "1. Первый пункт.\n"
+            "2. Второй пункт.\n"
+            "3. Последний пункт списка.\n"
+            "Это уже обычный абзац после списка\n"
+            "И еще одна строка обычного текста"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list", "p"])
+        self.assertEqual(
+            [item["marker"] for item in blocks[0]["items"]], ["1.", "2.", "3."]
+        )
+        self.assertEqual(blocks[0]["items"][-1]["text"], "Последний пункт списка.")
+        self.assertTrue(blocks[1]["text"].startswith("Это уже обычный абзац"))
+
+    def test_last_bullet_item_tail_moves_to_paragraphs(self) -> None:
+        text = (
+            "• Первый пункт\n"
+            "• Последний пункт списка.\n"
+            "Это уже текст вне списка\n"
+            "Отдельная строка хвоста"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list", "p"])
+        self.assertEqual(len(blocks[0]["items"]), 2)
+        self.assertEqual(blocks[0]["items"][-1]["text"], "Последний пункт списка.")
+        self.assertTrue(blocks[1]["text"].startswith("Это уже текст вне списка"))
+
+    def test_last_list_item_overflow_becomes_single_paragraph(self) -> None:
+        text = (
+            "1. Первый пункт.\n"
+            "2. Второй пункт.\n"
+            "3. Последний пункт списка.\n"
+            "Это первая строка хвоста после списка\n"
+            "Это вторая строка того же абзаца\n"
+            "И это третья строка того же абзаца"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list", "p"])
+        self.assertEqual(blocks[0]["items"][-1]["text"], "Последний пункт списка.")
+        self.assertEqual(
+            blocks[1]["text"],
+            "Это первая строка хвоста после списка Это вторая строка того же абзаца И это третья строка того же абзаца",
+        )
+
+    def test_last_list_item_split_waits_for_full_sentence(self) -> None:
+        text = (
+            "1. Первый пункт.\n"
+            "2. Второй пункт.\n"
+            "3. Последний пункт начинается\n"
+            "на этой строке и заканчивается только здесь.\n"
+            "Это уже следующий абзац"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list", "p"])
+        self.assertEqual(
+            blocks[0]["items"][-1]["text"],
+            "Последний пункт начинается на этой строке и заканчивается только здесь.",
+        )
+        self.assertEqual(blocks[1]["text"], "Это уже следующий абзац")
+
+    def test_last_list_item_without_sentence_boundary_stays_in_list(self) -> None:
+        text = (
+            "1. Первый пункт.\n"
+            "2. Второй пункт.\n"
+            "3. Последний пункт начинается\n"
+            "на этой строке и продолжается без точки\n"
+            "и не должен отделяться в новый абзац"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list"])
+        self.assertEqual(
+            blocks[0]["items"][-1]["text"],
+            "Последний пункт начинается на этой строке и продолжается без точки и не должен отделяться в новый абзац",
+        )
+
     def test_chapter_heading_with_immediate_paragraph_tail(self) -> None:
         text = (
             "Глава 10. Победа в конфликте.\n"
@@ -285,6 +372,17 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         self.assertEqual(blocks[0]["type"], "h2")
         self.assertEqual(blocks[0]["text"], '"Гудение" злых духов')
 
+    def test_colon_period_heading_becomes_h2(self) -> None:
+        text = "Распознавание видения: от Бога или от сатаны."
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h2"])
+        self.assertEqual(
+            blocks[0]["text"],
+            "Распознавание видения: от Бога или от сатаны",
+        )
+
     def test_numbered_heading_with_tail_stays_heading_not_list(self) -> None:
         text = (
             '2. Предполагаемое единство для "Пробуждения".\n\n'
@@ -298,6 +396,34 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
             blocks[0]["text"],
             '2. Предполагаемое единство для "Пробуждения"',
         )
+
+    def test_last_list_item_with_abbreviation_not_split_by_abbr(self) -> None:
+        text = (
+            '1. Не повинуйтесь внешнему или кажущемуся внутреннему "голосу";\n'
+            "2. Не предполагайте присутствие Бога как внутри или вокруг;\n"
+            '3. Не молитесь Богу как внутри или вокруг, в атмосфере, но как в небесах, (см. об ошибочном местоположении Бога и главу 6 "Как обнаружить источник голоса" и "Как распознать источник \\"текстов\\", данных сверхъестественно?" на распознании голосов от сверхъестественной сферы)'
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list"])
+        self.assertEqual(len(blocks[0]["items"]), 3)
+        last_item_text = blocks[0]["items"][-1]["text"]
+        self.assertIn("см. об ошибочном", last_item_text)
+        self.assertIn("главу 6", last_item_text)
+        self.assertIn("от сверхъестественной сферы", last_item_text)
+
+    def test_last_list_item_splits_after_capital_letter_sentence_boundary(self) -> None:
+        text = (
+            "1. Первый пункт.\n"
+            "2. Второй пункт очень длинный чтобы выполнить условие размера минимум 260 символов и содержит разный текст до тех пор пока не закончится первое предложение здесь в конце с точкой. Это совсем отдельное новое предложение которое должно быть отделено и переноситься в следующий абзац как самостоятельный текст"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["list", "p"])
+        self.assertTrue(blocks[0]["items"][-1]["text"].endswith("точкой."))
+        self.assertTrue(blocks[1]["text"].startswith("Это совсем отдельное новое"))
 
 
 if __name__ == "__main__":

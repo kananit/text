@@ -21,7 +21,7 @@ _LIST_TEXT_UPPER_START_RE = re.compile(r'^[A-ZА-ЯЁ"«(]')
 _SOFT_BREAK_NEXT_START_RE = re.compile(r'^[a-zа-яё0-9"\'«\(]')
 _STRONG_TERMINAL_PUNCT_RE = re.compile(r"[!?…:;»\"'\u201d\u2019]$")
 _SOFT_BREAK_BLOCKING_PUNCT_RE = re.compile(r"[.!?…:;»\"'\u201d\u2019\)]$")
-_PERIOD_HEADING_SINGLE_LINE_BLOCK_RE = re.compile(r"[;:!?…\)]")
+_PERIOD_HEADING_SINGLE_LINE_BLOCK_RE = re.compile(r"[;!?…\)]")
 _PERIOD_HEADING_MULTI_LINE_BLOCK_RE = re.compile(r"[!?…\)]")
 _ITALIC_LEAD_BLOCKING_PUNCT_RE = re.compile(r"[!?…:;]$")
 _LIST_ITEM_COMPLETE_TERMINAL_RE = re.compile(r"[.!?…]$")
@@ -522,7 +522,9 @@ def chapter_blocks(content: str) -> list[dict]:
             result["start"] = state.list_start
         return result
 
-    def split_prefix_and_list(block_lines: list[str]) -> tuple[list[str], dict] | None:
+    def split_prefix_and_list(
+        block_lines: list[str],
+    ) -> tuple[list[str], dict, list[str]] | None:
         first_marker_index = None
         first_marker_match = None
         for index, raw_line in enumerate(block_lines):
@@ -551,9 +553,11 @@ def chapter_blocks(content: str) -> list[dict]:
         if not prefix_lines or not list_block:
             return None
 
-        return prefix_lines, list_block
+        return prefix_lines, list_block, list_lines
 
-    def split_list_and_tail(block_lines: list[str]) -> tuple[dict, list[str]] | None:
+    def split_list_and_tail(
+        block_lines: list[str],
+    ) -> tuple[dict, list[str], list[str]] | None:
         state = ListParsingState()
 
         for index, raw_line in enumerate(block_lines):
@@ -586,7 +590,7 @@ def chapter_blocks(content: str) -> list[dict]:
                             ]
                             list_block = build_list_block(list_lines)
                             if list_block and tail_lines:
-                                return list_block, tail_lines
+                                return list_block, list_lines, tail_lines
 
                 state.marker_count += 1
                 state.current_marker = marker_match.group("marker")
@@ -641,17 +645,17 @@ def chapter_blocks(content: str) -> list[dict]:
                             list_lines = block_lines[:index]
                             list_block = build_list_block(list_lines)
                             if list_block and tail_lines:
-                                return list_block, tail_lines
+                                return list_block, list_lines, tail_lines
                         list_lines = block_lines[:index]
                         list_block = build_list_block(list_lines)
                         if list_block and tail_lines:
-                            return list_block, tail_lines
+                            return list_block, list_lines, tail_lines
                         continue
                     else:
                         list_lines = block_lines[:index]
                         list_block = build_list_block(list_lines)
                         if list_block and tail_lines:
-                            return list_block, tail_lines
+                            return list_block, list_lines, tail_lines
 
             if state.current_item_text:
                 state.current_item_text = clean_paragraph(
@@ -662,6 +666,103 @@ def chapter_blocks(content: str) -> list[dict]:
 
     blocks = []
     buffer_lines: list[str] = []
+
+    def split_last_list_item_overflow(
+        source_lines: list[str],
+        list_block: dict,
+    ) -> tuple[dict, list[str]]:
+        def split_after_first_sentence(text: str) -> tuple[str, list[str]]:
+            normalized = clean_paragraph(text)
+            if not normalized:
+                return "", []
+
+            sentence_match = re.match(
+                r"^(?P<first>.+?[.!?…])(?=\s+[A-ZА-ЯЁ]|\s*$)(?:\s+(?P<tail>\S.*))?$",
+                normalized,
+            )
+            if not sentence_match:
+                return normalized, []
+
+            kept = clean_paragraph(sentence_match.group("first"))
+            tail = clean_paragraph(sentence_match.group("tail") or "")
+            return kept, ([tail] if tail else [])
+
+        if list_block.get("type") != "list":
+            return list_block, []
+
+        items = list_block.get("items") or []
+        if len(items) < 2:
+            return list_block, []
+
+        normalized_lines = [
+            clean_paragraph(line) for line in source_lines if clean_paragraph(line)
+        ]
+        marker_positions: list[tuple[int, str]] = []
+        for index, normalized in enumerate(normalized_lines):
+            marker_match = match_list_marker(
+                normalized,
+                require_standalone_numeric=True,
+                allow_ocr_numeric_aliases=True,
+            )
+            if marker_match:
+                marker_positions.append((index, marker_match.group("rest")))
+
+        if len(marker_positions) < 2:
+            return list_block, []
+
+        last_marker_index, last_marker_rest = marker_positions[-1]
+        trailing_lines = normalized_lines[last_marker_index + 1 :]
+        last_item_text = clean_paragraph(items[-1].get("text", ""))
+
+        has_overflow_lines = bool(trailing_lines)
+        is_large_last_item = len(last_item_text) >= 260
+        starts_like_new_paragraph = bool(
+            trailing_lines and starts_with_sentence_case(trailing_lines[0])
+        )
+
+        if not has_overflow_lines and not is_large_last_item:
+            return list_block, []
+
+        if has_overflow_lines and not (is_large_last_item or starts_like_new_paragraph):
+            return list_block, []
+
+        kept_text = clean_paragraph(last_marker_rest) or last_item_text
+        overflow_lines = [line for line in trailing_lines if line]
+
+        if overflow_lines:
+            sentence_kept_text, sentence_tail = split_after_first_sentence(
+                clean_paragraph(" ".join([kept_text, *overflow_lines]))
+            )
+            if sentence_tail:
+                kept_text = sentence_kept_text
+                overflow_lines = sentence_tail
+            elif not _LIST_ITEM_COMPLETE_TERMINAL_RE.search(kept_text):
+                return list_block, []
+        elif len(kept_text) >= 220:
+            sentence_kept_text, sentence_tail = split_after_first_sentence(kept_text)
+            if sentence_tail:
+                kept_text = sentence_kept_text
+                overflow_lines = sentence_tail
+
+        overflow_lines = [clean_paragraph(line) for line in overflow_lines if line]
+        if not overflow_lines:
+            return list_block, []
+
+        updated_block = dict(list_block)
+        updated_items = [dict(item) for item in items]
+        updated_items[-1]["text"] = kept_text
+        updated_block["items"] = updated_items
+        return updated_block, overflow_lines
+
+    def append_list_block_with_tail(source_lines: list[str], list_block: dict) -> None:
+        adjusted_list_block, tail_paragraphs = split_last_list_item_overflow(
+            source_lines,
+            list_block,
+        )
+        blocks.append(adjusted_list_block)
+        tail_text = clean_paragraph(" ".join(tail_paragraphs))
+        if tail_text:
+            blocks.append({"type": "p", "text": tail_text})
 
     def try_emit_table(non_empty: list[str]) -> bool:
         rows = parse_table_rows(non_empty)
@@ -798,13 +899,13 @@ def chapter_blocks(content: str) -> list[dict]:
         blocks.append(build_heading_block(heading_candidate))
         list_block = build_list_block(tail_lines)
         if list_block:
-            blocks.append(list_block)
+            append_list_block_with_tail(tail_lines, list_block)
             return True
 
         list_and_tail = split_list_and_tail(tail_lines)
         if list_and_tail:
-            split_list_block, remaining_tail_lines = list_and_tail
-            blocks.append(split_list_block)
+            split_list_block, split_list_lines, remaining_tail_lines = list_and_tail
+            append_list_block_with_tail(split_list_lines, split_list_block)
             if remaining_tail_lines:
                 blocks.append(
                     {
@@ -822,13 +923,13 @@ def chapter_blocks(content: str) -> list[dict]:
         if not prefix_and_list:
             return False
 
-        prefix_lines, list_block = prefix_and_list
+        prefix_lines, list_block, list_lines = prefix_and_list
         prefix_text = clean_paragraph(" ".join(prefix_lines))
         if len(prefix_lines) == 1 and is_subheading_candidate(prefix_text, 1):
             blocks.append(build_heading_block(prefix_text))
         else:
             blocks.append({"type": "p", "text": prefix_text})
-        blocks.append(list_block)
+        append_list_block_with_tail(list_lines, list_block)
         return True
 
     def try_emit_split_list_and_tail(non_empty: list[str]) -> bool:
@@ -836,21 +937,21 @@ def chapter_blocks(content: str) -> list[dict]:
         if not list_and_tail:
             return False
 
-        list_block, tail_lines = list_and_tail
-        blocks.append(list_block)
+        list_block, list_lines, tail_lines = list_and_tail
+        append_list_block_with_tail(list_lines, list_block)
 
         tail_prefix_and_list = split_prefix_and_list(tail_lines)
         if tail_prefix_and_list:
-            tail_prefix_lines, tail_list_block = tail_prefix_and_list
+            tail_prefix_lines, tail_list_block, tail_list_lines = tail_prefix_and_list
             blocks.append(
                 {"type": "p", "text": clean_paragraph(" ".join(tail_prefix_lines))}
             )
-            blocks.append(tail_list_block)
+            append_list_block_with_tail(tail_list_lines, tail_list_block)
             return True
 
         tail_list_block = build_list_block(tail_lines)
         if tail_list_block:
-            blocks.append(tail_list_block)
+            append_list_block_with_tail(tail_lines, tail_list_block)
             return True
 
         blocks.append({"type": "p", "text": clean_paragraph(" ".join(tail_lines))})
@@ -910,7 +1011,7 @@ def chapter_blocks(content: str) -> list[dict]:
         list_block = build_list_block(non_empty)
         if not list_block:
             return False
-        blocks.append(list_block)
+        append_list_block_with_tail(non_empty, list_block)
         return True
 
     def emit_paragraph(non_empty: list[str]) -> None:
