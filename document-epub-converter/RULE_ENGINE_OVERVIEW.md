@@ -130,7 +130,7 @@ Rule-engine уже используется в рабочем пайплайне
 
 Проверено:
 
-- `python3.12 -m unittest discover -s tests -p 'test*.py'`
-- `python3.12 main.py --yes`
+- `python3 -m unittest discover -s tests -p 'test*.py'`
+- `python3 main.py --yes`
 
 Обе проверки проходят успешно.

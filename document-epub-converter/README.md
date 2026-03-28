@@ -19,6 +19,14 @@
 
 ## Запуск
 
+Используется `python3` (ваш настроенный интерпретатор).
+
+Установка зависимости для PDF:
+
+```bash
+python3 -m pip install PyMuPDF
+```
+
 1. Сгенерировать/обновить метаданные из исходного файла:
 
 ```bash
@@ -61,10 +69,6 @@ python3 document-epub-converter/main.py --yes
 - Если обязательные поля не найдены в исходном файле и/или `meta.json`, они заполняются из `EXAMPLE_META_*` в `config.py`, и скрипт выводит warning.
 - При первом запуске автоматически создаётся `meta.example.json` (если отсутствует), а `meta.json` формируется по схеме: исходный файл → fallback к `meta.example.json`.
 - `publisher` и `description` считаются необязательными и будут заполнены автоматически при отсутствии.
-- Для извлечения текста из PDF нужен `pdftotext` (Poppler):
-
-```bash
-brew install poppler
-```
+- Для извлечения текста из PDF используется `PyMuPDF`.
 
 - Для `doc` / `docx` на macOS используется встроенный `textutil`.

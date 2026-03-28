@@ -260,12 +260,15 @@ _FRONT_MATTER_HEADINGS = {
     "отзывы",
     "предисловие",
     "введение",
+    "вступление",
+    "посвящение",
     "послесловие",
     "заключение",
     "благодарности",
     "foreword",
     "preface",
     "introduction",
+    "dedication",
     "afterword",
     "acknowledgements",
     "acknowledgments",
@@ -279,7 +282,61 @@ def _normalize_heading_label(text: str) -> str:
 
 def _finalize_section_title(text: str) -> str:
     title = normalize_title(text)
+    title = re.sub(r"\*\*(?P<inner>.+?)\*\*", r"\g<inner>", title)
+    title = re.sub(r"__(?P<inner>.+?)__", r"\g<inner>", title)
+    title = re.sub(r"<b>(?P<inner>.+?)</b>", r"\g<inner>", title, flags=re.IGNORECASE)
+    title = re.sub(
+        r"<strong>(?P<inner>.+?)</strong>",
+        r"\g<inner>",
+        title,
+        flags=re.IGNORECASE,
+    )
+    title = normalize_title(title)
     return re.sub(r"\s*[:：;；/\-—–]+\s*$", "", title)
+
+
+def _has_inline_heading_style_markers(line: str) -> bool:
+    stripped = line.strip()
+    return bool(
+        re.search(
+            r"\*\*.+?\*\*|__.+?__|<b>.+?</b>|<strong>.+?</strong>",
+            stripped,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _looks_like_upper_title_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or len(stripped) > 100:
+        return False
+    letters = re.findall(r"[A-Za-zА-Яа-яЁё]", stripped)
+    if len(letters) < 4:
+        return False
+    uppercase = sum(1 for ch in letters if ch.isupper())
+    ratio = uppercase / len(letters)
+    return ratio >= 0.65
+
+
+def _is_chapter_title_continuation_candidate(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or is_chapter_heading(stripped):
+        return False
+    if len(stripped) > 100:
+        return False
+    if re.search(r"https?://|www\.", stripped, flags=re.IGNORECASE):
+        return False
+    if stripped.endswith((".", "?", "!", "…", ";", ":")):
+        return False
+    if re.fullmatch(r"\d{1,4}", stripped):
+        return False
+
+    # Upper-case lines (including commas) are typically wrapped chapter-title continuations.
+    if _looks_like_upper_title_line(stripped):
+        return True
+
+    # Styled continuation line should also be accepted.
+    return _has_inline_heading_style_markers(stripped)
 
 
 def _is_front_matter_heading_candidate(
@@ -525,15 +582,36 @@ def _handle_explicit_chapter_heading_branch(
         return True, i, current_title, current_content
 
     combined = stripped
+    merged = False
     next_idx, next_line = _next_non_empty_line(lines, i)
     if (
-        _is_bare_explicit_chapter_heading(stripped)
-        and next_idx is not None
+        next_idx is not None
         and next_line
-        and _is_subtitle_candidate(next_line)
+        and _is_chapter_title_continuation_candidate(next_line)
     ):
-        combined = f"{stripped}. {next_line}"
-        i = next_idx + 1
+        if _is_bare_explicit_chapter_heading(stripped):
+            combined = f"{stripped}. {next_line}"
+            i = next_idx + 1
+            merged = True
+        elif _has_inline_heading_style_markers(stripped) or not stripped.endswith(
+            (".", "?", "!", "…")
+        ):
+            combined = f"{stripped} {next_line}"
+            i = next_idx + 1
+            merged = True
+
+    if merged:
+        for _ in range(2):
+            extra_idx, extra_line = _next_non_empty_line(lines, i)
+            if (
+                extra_idx is not None
+                and extra_line
+                and _is_chapter_title_continuation_candidate(extra_line)
+            ):
+                combined = f"{combined} {extra_line}"
+                i = extra_idx + 1
+            else:
+                break
 
     new_title = _finalize_section_title(
         resolve_title_with_toc(combined, toc_entries, used_toc_indices)

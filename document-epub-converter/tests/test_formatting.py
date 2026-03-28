@@ -438,6 +438,33 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         self.assertTrue(blocks[0]["items"][-1]["text"].endswith("точкой."))
         self.assertTrue(blocks[1]["text"].startswith("Это совсем отдельное новое"))
 
+    def test_plain_uppercase_subheading_is_separated_from_body(self) -> None:
+        text = (
+            "В истории Иезавели есть все: секс, интриги, религиозное отступничество, гнусные\n"
+            "схемы, мошенничество, предательство, и трагедия.\n"
+            "ВЕТХОЗАВЕТНАЯ ЦАРИЦА\n"
+            "Иезавель управляла одной из самых жестоких империй в истории, построенной на\n"
+            "человеческой крови. Хитрая, безжалостная, властная Иезавель до сих пор\n"
+            "существует в качестве архетипа освобожденной"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["p", "h3_small", "p"])
+        self.assertEqual(blocks[1]["text"], "ВЕТХОЗАВЕТНАЯ ЦАРИЦА")
+        self.assertTrue(blocks[2]["text"].startswith("Иезавель управляла"))
+
+    def test_plain_uppercase_heading_with_tail_becomes_minor_subheading(self) -> None:
+        text = (
+            "ВЕТХОЗАВЕТНАЯ ЦАРИЦА\n"
+            "Иезавель управляла одной из самых жестоких империй в истории"
+        )
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["h3_small", "p"])
+        self.assertEqual(blocks[0]["text"], "ВЕТХОЗАВЕТНАЯ ЦАРИЦА")
+
 
 if __name__ == "__main__":
     unittest.main()

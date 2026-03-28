@@ -9,6 +9,7 @@ from config import (
     EXAMPLE_META_YEAR,
     REQUIRED_META_FIELDS,
 )
+from extraction import extract_text
 from models import BookMetadata
 
 
@@ -214,28 +215,17 @@ def _try_extract_source_text(source_file: Path) -> str | None:
     suffix = source_file.suffix.lower()
 
     if suffix == ".pdf":
-        command = [
-            "pdftotext",
-            "-layout",
-            "-f",
-            "1",
-            "-l",
-            "8",
-            str(source_file),
-            str(METADATA_BOOTSTRAP_TEXT_FILE),
-        ]
-        result = subprocess.run(command, capture_output=True)
-        if result.returncode != 0:
-            return None
         try:
-            return METADATA_BOOTSTRAP_TEXT_FILE.read_text(
-                encoding="utf-8", errors="replace"
+            return extract_text(
+                source_file,
+                METADATA_BOOTSTRAP_TEXT_FILE,
+                start_page=1,
+                end_page=8,
             )
-        except OSError:
+        except SystemExit:
             return None
-        finally:
-            if METADATA_BOOTSTRAP_TEXT_FILE.exists():
-                METADATA_BOOTSTRAP_TEXT_FILE.unlink()
+        except Exception:
+            return None
 
     if suffix in {".doc", ".docx"}:
         command = ["textutil", "-convert", "txt", "-stdout", str(source_file)]

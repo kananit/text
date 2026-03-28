@@ -188,9 +188,7 @@ def chapter_blocks(content: str) -> list[dict]:
 
     def is_subheading_candidate(text: str, line_count: int) -> bool:
         raw_text = text.strip()
-        if not has_explicit_heading_style(raw_text):
-            return False
-
+        has_explicit_style = has_explicit_heading_style(raw_text)
         stripped = strip_explicit_heading_style(raw_text)
         if not stripped:
             return False
@@ -200,6 +198,17 @@ def chapter_blocks(content: str) -> list[dict]:
             return False
         if match_list_marker(stripped):
             return False
+        if _URL_OR_LONG_NUMBER_RE.search(stripped):
+            return False
+
+        if not has_explicit_style:
+            if stripped.endswith((".", "?", "!", "…", ";", ":")):
+                return False
+            words = re.findall(r"[A-Za-zА-Яа-яЁё0-9]+", stripped)
+            if len(words) > 10:
+                return False
+            return is_minor_subheading(stripped) and line_count <= 2
+
         if stripped[0] in (
             '"',
             "\u201c",
@@ -218,6 +227,45 @@ def chapter_blocks(content: str) -> list[dict]:
             return is_period_terminated_heading_candidate(stripped, line_count)
 
         return line_count <= 3
+
+    def try_emit_inline_minor_subheading_split(non_empty: list[str]) -> bool:
+        if len(non_empty) < 3:
+            return False
+
+        split_indices: list[int] = []
+        for index, raw_line in enumerate(non_empty):
+            if index == 0 or index == len(non_empty) - 1:
+                continue
+            candidate = clean_paragraph(raw_line)
+            if is_subheading_candidate(candidate, 1):
+                split_indices.append(index)
+
+        if not split_indices:
+            return False
+
+        start = 0
+        emitted_any = False
+        for index in split_indices:
+            before_lines = [
+                clean_paragraph(line) for line in non_empty[start:index] if line.strip()
+            ]
+            if before_lines:
+                blocks.append(
+                    {"type": "p", "text": clean_paragraph(" ".join(before_lines))}
+                )
+            blocks.append(build_heading_block(clean_paragraph(non_empty[index])))
+            start = index + 1
+            emitted_any = True
+
+        if not emitted_any:
+            return False
+
+        tail_lines = [
+            clean_paragraph(line) for line in non_empty[start:] if line.strip()
+        ]
+        if tail_lines:
+            blocks.append({"type": "p", "text": clean_paragraph(" ".join(tail_lines))})
+        return True
 
     def should_merge_soft_break(prev_line: str, next_line: str) -> bool:
         prev = prev_line.strip()
@@ -1067,6 +1115,9 @@ def chapter_blocks(content: str) -> list[dict]:
         BlockRule("heading-plus-list", try_emit_heading_plus_list),
         BlockRule("prefix-and-list", try_emit_prefix_and_list),
         BlockRule("split-list-and-tail", try_emit_split_list_and_tail),
+        BlockRule(
+            "inline-minor-subheading-split", try_emit_inline_minor_subheading_split
+        ),
         BlockRule("list-block", try_emit_list_block),
         BlockRule("short-subheading", try_emit_short_subheading),
     )
