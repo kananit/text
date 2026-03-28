@@ -33,6 +33,10 @@ _STANDALONE_PAGE_NUMBER_RE = re.compile(r"^\d{1,4}$")
 _OCR_ONE_MARKER_RE = re.compile(
     r"^(?P<alias>[Il|])\s*(?P<punct>[\.)])\s*(?P<rest>\S.*)$"
 )
+_EXPLICIT_HEADING_STYLE_RE = re.compile(
+    r"^(?:\*\*.+\*\*|__.+__|<b>.+</b>|<strong>.+</strong>)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -115,8 +119,25 @@ def chapter_blocks(content: str) -> list[dict]:
         stripped = re.sub(r"\.(?=(?:[\"'»”’)]*)\s*$)", "", stripped)
         return stripped.strip()
 
+    def has_explicit_heading_style(text: str) -> bool:
+        return bool(_EXPLICIT_HEADING_STYLE_RE.match(clean_paragraph(text)))
+
+    def strip_explicit_heading_style(text: str) -> str:
+        stripped = clean_paragraph(text)
+        patterns = (
+            r"^\*\*(?P<inner>.+)\*\*$",
+            r"^__(?P<inner>.+)__$",
+            r"^<b>(?P<inner>.+)</b>$",
+            r"^<strong>(?P<inner>.+)</strong>$",
+        )
+        for pattern in patterns:
+            match = re.match(pattern, stripped, flags=re.IGNORECASE)
+            if match:
+                return clean_paragraph(match.group("inner"))
+        return stripped
+
     def is_period_terminated_heading_candidate(text: str, line_count: int) -> bool:
-        stripped = text.strip()
+        stripped = strip_explicit_heading_style(text).strip()
         if not stripped.endswith("."):
             return False
 
@@ -147,7 +168,7 @@ def chapter_blocks(content: str) -> list[dict]:
         return True
 
     def is_question_terminated_heading_candidate(text: str, line_count: int) -> bool:
-        stripped = text.strip()
+        stripped = strip_explicit_heading_style(text).strip()
         if not stripped.endswith("?"):
             return False
 
@@ -166,7 +187,11 @@ def chapter_blocks(content: str) -> list[dict]:
         return True
 
     def is_subheading_candidate(text: str, line_count: int) -> bool:
-        stripped = text.strip()
+        raw_text = text.strip()
+        if not has_explicit_heading_style(raw_text):
+            return False
+
+        stripped = strip_explicit_heading_style(raw_text)
         if not stripped:
             return False
         if len(stripped) >= MINOR_SUBHEADING_MAX_LEN:
@@ -271,7 +296,9 @@ def chapter_blocks(content: str) -> list[dict]:
         return marker_match
 
     def build_heading_block(text: str) -> dict:
-        cleaned_heading = strip_trailing_subheading_period(text)
+        cleaned_heading = strip_trailing_subheading_period(
+            strip_explicit_heading_style(text)
+        )
         if is_minor_subheading(cleaned_heading):
             return {"type": "h3_small", "text": cleaned_heading}
         return {"type": "h2", "text": cleaned_heading}
@@ -320,7 +347,7 @@ def chapter_blocks(content: str) -> list[dict]:
 
         while consumed < len(block_lines):
             heading_body = clean_paragraph(" ".join(heading_body_parts))
-            if heading_body.endswith("."):
+            if strip_explicit_heading_style(heading_body).endswith("."):
                 break
 
             next_line = clean_paragraph(block_lines[consumed])
@@ -330,7 +357,10 @@ def chapter_blocks(content: str) -> list[dict]:
             consumed += 1
 
         heading_body = clean_paragraph(" ".join(heading_body_parts))
-        if not heading_body.endswith("."):
+        normalized_heading_body = strip_explicit_heading_style(heading_body)
+        if not normalized_heading_body.endswith("."):
+            return None
+        if not has_explicit_heading_style(heading_body):
             return None
         if not is_period_terminated_heading_candidate(heading_body, consumed):
             return None
@@ -343,7 +373,7 @@ def chapter_blocks(content: str) -> list[dict]:
         if tail_lines and not is_italic_lead_candidate(tail_lines):
             return None
 
-        heading_text = clean_paragraph(f"{marker} {heading_body}")
+        heading_text = clean_paragraph(f"{marker} {normalized_heading_body}")
         return heading_text, tail_lines
 
     def build_list_block(block_lines: list[str]) -> dict | None:
@@ -791,14 +821,13 @@ def chapter_blocks(content: str) -> list[dict]:
             return True
         return False
 
-    def try_emit_heading_dot_with_paragraph_tail(non_empty: list[str]) -> bool:
+    def try_emit_heading_with_paragraph_tail(non_empty: list[str]) -> bool:
         if len(non_empty) < 2:
             return False
         heading_candidate = clean_paragraph(non_empty[0])
         tail_lines = [clean_paragraph(line) for line in non_empty[1:] if line.strip()]
         if (
-            heading_candidate.endswith(".")
-            and is_subheading_candidate(heading_candidate, 1)
+            is_subheading_candidate(heading_candidate, 1)
             and tail_lines
             and starts_with_sentence_case(tail_lines[0])
             and not is_italic_lead_candidate(tail_lines)
@@ -1000,11 +1029,7 @@ def chapter_blocks(content: str) -> list[dict]:
         if not is_subheading_candidate(candidate, len(non_empty)):
             return False
 
-        cleaned_heading = strip_trailing_subheading_period(candidate)
-        if is_minor_subheading(cleaned_heading):
-            blocks.append({"type": "h3_small", "text": cleaned_heading})
-        else:
-            blocks.append({"type": "h2", "text": cleaned_heading})
+        blocks.append(build_heading_block(candidate))
         return True
 
     def try_emit_list_block(non_empty: list[str]) -> bool:
@@ -1025,9 +1050,7 @@ def chapter_blocks(content: str) -> list[dict]:
             "heading-dot-italic-tail-3",
             lambda lines: try_emit_heading_dot_with_italic_tail(lines, min_lines=3),
         ),
-        BlockRule(
-            "heading-dot-paragraph-tail", try_emit_heading_dot_with_paragraph_tail
-        ),
+        BlockRule("heading-paragraph-tail", try_emit_heading_with_paragraph_tail),
         BlockRule(
             "chapter-heading-paragraph-tail",
             try_emit_chapter_heading_with_paragraph_tail,

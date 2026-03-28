@@ -19,6 +19,31 @@ def escape_xml(text: str) -> str:
     return text
 
 
+def render_inline_xml(text: str) -> str:
+    pattern = re.compile(
+        r"(?P<markdown>\*\*(?P<markdown_text>.+?)\*\*|__(?P<underscore_text>.+?)__)|(?P<html><(?:b|strong)>(?P<html_text>.+?)</(?:b|strong)>)",
+        re.IGNORECASE,
+    )
+
+    rendered: list[str] = []
+    position = 0
+    for match in pattern.finditer(text):
+        start, end = match.span()
+        rendered.append(escape_xml(text[position:start]))
+
+        bold_text = (
+            match.group("markdown_text")
+            or match.group("underscore_text")
+            or match.group("html_text")
+            or ""
+        )
+        rendered.append(f"<strong>{escape_xml(bold_text)}</strong>")
+        position = end
+
+    rendered.append(escape_xml(text[position:]))
+    return "".join(rendered)
+
+
 def strip_leading_chapter_number(title: str) -> str:
     return re.sub(r"^\s*\d+\.\s+", "", title).strip()
 
@@ -27,9 +52,9 @@ def render_blocks_to_xhtml(blocks: list[dict]) -> str:
     chunks = []
     for block in blocks:
         if block["type"] == "p":
-            chunks.append(f"    <p>{escape_xml(block['text'])}</p>")
+            chunks.append(f"    <p>{render_inline_xml(block['text'])}</p>")
         elif block["type"] == "p_italic":
-            chunks.append(f"    <p><em>{escape_xml(block['text'])}</em></p>")
+            chunks.append(f"    <p><em>{render_inline_xml(block['text'])}</em></p>")
         elif block["type"] == "list":
             tag = "ol" if block.get("ordered") else "ul"
             if (
@@ -45,15 +70,15 @@ def render_blocks_to_xhtml(blocks: list[dict]) -> str:
                     item_text = f"{item['marker']} {item['text']}"
                 else:
                     item_text = item["text"]
-                chunks.append(f"      <li>{escape_xml(item_text)}</li>")
+                chunks.append(f"      <li>{render_inline_xml(item_text)}</li>")
             chunks.append(f"    </{tag}>")
         elif block["type"] == "h2":
             chunks.append(
-                f"    <h3 class=\"subheading\">{escape_xml(block['text'])}</h3>"
+                f"    <h3 class=\"subheading\">{render_inline_xml(block['text'])}</h3>"
             )
         elif block["type"] == "h3_small":
             chunks.append(
-                f"    <h4 class=\"minor-subtitle\">{escape_xml(block['text'])}</h4>"
+                f"    <h4 class=\"minor-subtitle\">{render_inline_xml(block['text'])}</h4>"
             )
         elif block["type"] == "table":
             rows = block["rows"]
@@ -61,7 +86,7 @@ def render_blocks_to_xhtml(blocks: list[dict]) -> str:
             for row_idx, row in enumerate(rows):
                 tag = "th" if row_idx == 0 else "td"
                 row_html = "".join(
-                    [f"<{tag}>{escape_xml(cell)}</{tag}>" for cell in row]
+                    [f"<{tag}>{render_inline_xml(cell)}</{tag}>" for cell in row]
                 )
                 chunks.append(f"      <tr>{row_html}</tr>")
             chunks.append("    </table>\n    </div>")

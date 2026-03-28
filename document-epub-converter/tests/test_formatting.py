@@ -141,7 +141,7 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
 
     def test_heading_with_lowercase_numbered_items_forms_list(self) -> None:
         text = (
-            "Неправильное толкование\n"
+            "**Неправильное толкование**\n"
             "1. оставляет человека безгрешным\n"
             "2. Человек не должен ни говорить, ни"
         )
@@ -154,7 +154,7 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
 
     def test_heading_with_inline_second_numbered_item_forms_list(self) -> None:
         text = (
-            "Неправильное толкование\n"
+            "**Неправильное толкование**\n"
             "1. оставляет человека безгрешным 2. Человек не должен ни говорить, ни"
         )
 
@@ -183,7 +183,7 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         )
 
     def test_ocr_upper_i_marker_is_normalized_to_one(self) -> None:
-        text = "Подделка\nI. Первый пункт\n2. Второй пункт"
+        text = "**Подделка**\nI. Первый пункт\n2. Второй пункт"
 
         blocks = chapter_blocks(text)
 
@@ -191,7 +191,7 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         self.assertEqual([item["marker"] for item in blocks[1]["items"]], ["1.", "2."])
 
     def test_ocr_lower_l_marker_is_normalized_to_one(self) -> None:
-        text = "Подделка\nl. Первый пункт\n2. Второй пункт"
+        text = "**Подделка**\nl. Первый пункт\n2. Второй пункт"
 
         blocks = chapter_blocks(text)
 
@@ -210,7 +210,7 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
 
     def test_multiline_numbered_list_with_inline_next_marker_forms_list(self) -> None:
         text = (
-            "Основание. И как с ним разбираться\n"
+            "**Основание. И как с ним разбираться**\n"
             "1. Устойчивое отвержение основания определенно\n"
             "пунктов, в чем верующий видит, что он был обманут и их\n"
             "причину и результаты. 2. Наблюдать, чтобы не предоставить\n"
@@ -285,7 +285,7 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
 
     def test_heading_plus_numbered_list_recovers_small_numbering_break(self) -> None:
         text = (
-            "Подделка\n"
+            "**Подделка**\n"
             "1. Первый пункт.\n"
             "2. Второй пункт.\n"
             "3. Третий пункт.\n"
@@ -346,11 +346,11 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         self.assertIn("(2) Различные виды демонов", blocks[0]["text"])
         self.assertIn("(3) Как демоны сосредотачиваются в людях", blocks[1]["text"])
 
-    def test_question_headings_become_h2(self) -> None:
+    def test_explicitly_styled_question_headings_become_h2(self) -> None:
         text = (
-            'Могут ли "честные души" быть обмануты?\n\n'
+            '**Могут ли "честные души" быть обмануты?**\n\n'
             "Есть одна превалирующая идея.\n\n"
-            'Духовно ли высказывание о подчинению "Духу"?\n\n'
+            '**Духовно ли высказывание о подчинению "Духу"?**\n\n'
             '"Святого Духа, Которого Бог дал повинующимся Ему".'
         )
 
@@ -364,16 +364,16 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
             'Духовно ли высказывание о подчинению "Духу"?',
         )
 
-    def test_quoted_heading_becomes_h2(self) -> None:
-        text = '"Гудение" злых духов.\n\nЭто постоянное "гудение" в ушах.'
+    def test_explicitly_styled_quoted_heading_becomes_h2(self) -> None:
+        text = '**"Гудение" злых духов.**\n\nЭто постоянное "гудение" в ушах.'
 
         blocks = chapter_blocks(text)
 
         self.assertEqual(blocks[0]["type"], "h2")
         self.assertEqual(blocks[0]["text"], '"Гудение" злых духов')
 
-    def test_colon_period_heading_becomes_h2(self) -> None:
-        text = "Распознавание видения: от Бога или от сатаны."
+    def test_explicitly_styled_colon_period_heading_becomes_h2(self) -> None:
+        text = "**Распознавание видения: от Бога или от сатаны.**"
 
         blocks = chapter_blocks(text)
 
@@ -383,9 +383,11 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
             "Распознавание видения: от Бога или от сатаны",
         )
 
-    def test_numbered_heading_with_tail_stays_heading_not_list(self) -> None:
+    def test_explicitly_styled_numbered_heading_with_tail_stays_heading_not_list(
+        self,
+    ) -> None:
         text = (
-            '2. Предполагаемое единство для "Пробуждения".\n\n'
+            '2. **Предполагаемое единство для "Пробуждения".**\n\n'
             "В течение некоторого времени у меня было на сердце попробовать описать нечто."
         )
 
@@ -395,6 +397,17 @@ class ChapterBlocksRegressionTests(unittest.TestCase):
         self.assertEqual(
             blocks[0]["text"],
             '2. Предполагаемое единство для "Пробуждения"',
+        )
+
+    def test_plain_text_heading_candidate_stays_paragraph(self) -> None:
+        text = "Распознавание видения: от Бога или от сатаны."
+
+        blocks = chapter_blocks(text)
+
+        self.assertEqual([block["type"] for block in blocks], ["p"])
+        self.assertEqual(
+            blocks[0]["text"],
+            "Распознавание видения: от Бога или от сатаны.",
         )
 
     def test_last_list_item_with_abbreviation_not_split_by_abbr(self) -> None:
